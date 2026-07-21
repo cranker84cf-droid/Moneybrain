@@ -62,7 +62,23 @@ async function handleSharedLaunch(){
  if(!shared){showToast('Keine geteilte Datei gefunden.');return}
  const files=shared.files||[],names=files.length?files.map(file=>escapeHtml(file.name||'Kontoauszug')).join('<br>'):'Geteilter Inhalt';
  open(`<div class="sheet-title"><h2>Kontoauszug erhalten</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length||1} Datei(en) aus deiner Bank-App</strong><p>${names}</p></div><p class="subtitle" style="margin-top:14px">Der Kontoauszug wurde nur auf diesem Gerät gespeichert. Prüfe und ergänze die Buchungsdaten vor der Übernahme.</p><button class="primary" id="reviewShared">Import prüfen</button>`);
- content.querySelector('#reviewShared').onclick=()=>{const first=files[0];manualForm({name:'',amount:'',type:'expense',date:new Date().toISOString().slice(0,10),method:'Girokonto',status:'review',source:first?.type==='application/pdf'?'Geteilter Kontoauszug (PDF)':'Geteilte Bankdatei'})};
+ content.querySelector('#reviewShared').onclick=()=>showStatementImport(files[0]);
 }
 function openShareDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open('moneybrain-share',1);request.onupgradeneeded=()=>request.result.createObjectStore('inbox',{keyPath:'id',autoIncrement:true});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
 async function readLatestShare(){try{const db=await openShareDb();return await new Promise((resolve,reject)=>{const tx=db.transaction('inbox','readwrite'),store=tx.objectStore('inbox'),request=store.openCursor(null,'prev');request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(null);return}const value=cursor.value;cursor.delete();resolve(value)};request.onerror=()=>reject(request.error);tx.oncomplete=()=>db.close()})}catch{return null}}
+async function showStatementImport(file){
+ if(!file){showToast('Der Kontoauszug enthält keine Datei.');return}
+ const button=content.querySelector('#reviewShared');button.disabled=true;button.textContent='Kontoauszug wird gelesen …';
+ try{
+  const result=await window.parseDeutscheBankStatement(file);
+  open('<div class="sheet-title"><h2>Importübersicht</h2><button class="close">✕</button></div><p class="subtitle">'+result.pages+' Seiten wurden vollständig gelesen.</p><div class="year-summary"><span class="eyebrow">Erkannte Buchungen</span><strong style="font-size:30px;display:block;margin-top:8px">'+result.transactions.length+'</strong><div class="year-summary-grid"><div><small>Einnahmen</small><strong>'+euro.format(result.income)+'</strong></div><div><small>Ausgaben</small><strong>'+euro.format(result.expense)+'</strong></div></div></div><div class="detail-list"><div class="detail-row"><span>Status</span><strong class="status ok">Kontoauszug geprüft</strong></div><div class="detail-row"><span>Übernahme</span><strong>Alle Buchungen</strong></div></div><button class="primary" id="importStatement">Alle '+result.transactions.length+' Buchungen übernehmen</button><button class="secondary" style="width:100%" id="previewStatement">Buchungen ansehen</button>');
+  content.querySelector('#previewStatement').onclick=()=>{open('<div class="sheet-title"><h2>Erkannte Buchungen</h2><button class="close">✕</button></div><p class="subtitle">'+result.transactions.length+' Buchungen, chronologisch sortiert</p>'+list([...result.transactions].sort((a,b)=>new Date(b.date)-new Date(a.date))))};
+  content.querySelector('#importStatement').onclick=()=>importStatementTransactions(result.transactions);
+ }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Kontoauszug nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
+}
+function importStatementTransactions(items){
+ const key=t=>[String(t.date).slice(0,10),Number(t.amount).toFixed(2),t.type,String(t.name).toLowerCase().replace(/\W/g,'')].join('|');
+ const existing=new Set(state.transactions.map(key)),fresh=items.filter(item=>!existing.has(key(item)));
+ state.transactions.push(...fresh);save();sheet.close();state.route='transactions';state.filter='all';render();
+ showToast(fresh.length+' Buchungen übernommen'+(fresh.length<items.length?', '+(items.length-fresh.length)+' bereits vorhanden':''));
+}

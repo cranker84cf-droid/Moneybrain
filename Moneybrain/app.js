@@ -71,14 +71,14 @@ async function showStatementImport(file){
  const button=content.querySelector('#reviewShared');button.disabled=true;button.textContent='Kontoauszug wird gelesen …';
  try{
   const result=await window.parseDeutscheBankStatement(file);
-  open('<div class="sheet-title"><h2>Importübersicht</h2><button class="close">✕</button></div><p class="subtitle">'+result.pages+' Seiten wurden vollständig gelesen.</p><div class="year-summary"><span class="eyebrow">Erkannte Buchungen</span><strong style="font-size:30px;display:block;margin-top:8px">'+result.transactions.length+'</strong><div class="year-summary-grid"><div><small>Einnahmen</small><strong>'+euro.format(result.income)+'</strong></div><div><small>Ausgaben</small><strong>'+euro.format(result.expense)+'</strong></div></div></div><div class="detail-list"><div class="detail-row"><span>Status</span><strong class="status ok">Kontoauszug geprüft</strong></div><div class="detail-row"><span>Übernahme</span><strong>Alle Buchungen</strong></div></div><button class="primary" id="importStatement">Alle '+result.transactions.length+' Buchungen übernehmen</button><button class="secondary" style="width:100%" id="previewStatement">Buchungen ansehen</button>');
+  open('<div class="sheet-title"><h2>Importübersicht</h2><button class="close">✕</button></div><p class="subtitle">'+result.pages+' Seiten wurden vollständig gelesen.'+(result.cashMovements?' '+result.cashMovements+' Bargeldbewegung(en) über '+euro.format(result.cashExcluded)+' werden nicht berücksichtigt.':'')+'</p><div class="year-summary"><span class="eyebrow">Erkannte Buchungen</span><strong style="font-size:30px;display:block;margin-top:8px">'+result.transactions.length+'</strong><div class="year-summary-grid"><div><small>Einnahmen</small><strong>'+euro.format(result.income)+'</strong></div><div><small>Ausgaben</small><strong>'+euro.format(result.expense)+'</strong></div></div></div><div class="detail-list"><div class="detail-row"><span>Status</span><strong class="status ok">Kontoauszug geprüft</strong></div><div class="detail-row"><span>Übernahme</span><strong>Alle Buchungen</strong></div></div><button class="primary" id="importStatement">Alle '+result.transactions.length+' Buchungen übernehmen</button><button class="secondary" style="width:100%" id="previewStatement">Buchungen ansehen</button>');
   content.querySelector('#previewStatement').onclick=()=>{open('<div class="sheet-title"><h2>Erkannte Buchungen</h2><button class="close">✕</button></div><p class="subtitle">'+result.transactions.length+' Buchungen, chronologisch sortiert</p>'+list([...result.transactions].sort((a,b)=>new Date(b.date)-new Date(a.date))))};
   content.querySelector('#importStatement').onclick=()=>importStatementTransactions(result.transactions);
  }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Kontoauszug nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
 }
 function importStatementTransactions(items){
- const key=t=>[String(t.date).slice(0,10),Number(t.amount).toFixed(2),t.type,String(t.name).toLowerCase().replace(/\W/g,'')].join('|');
- const existing=new Set(state.transactions.map(key)),fresh=items.filter(item=>!existing.has(key(item)));
- state.transactions.push(...fresh);save();sheet.close();state.route='transactions';state.filter='all';render();
- showToast(fresh.length+' Buchungen übernommen'+(fresh.length<items.length?', '+(items.length-fresh.length)+' bereits vorhanden':''));
+ const months=new Set(items.map(item=>String(item.date).slice(0,7)));
+ state.transactions=state.transactions.filter(item=>!(item.source==='Kontoauszug'&&months.has(String(item.date).slice(0,7))));
+ state.transactions.push(...items);save();sheet.close();state.route='transactions';state.filter='all';render();
+ showToast(items.length+' Buchungen übernommen; Bargeld ignoriert');
 }

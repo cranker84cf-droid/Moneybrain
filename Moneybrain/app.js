@@ -51,3 +51,18 @@ function capitalize(s){return s.charAt(0).toUpperCase()+s.slice(1)}
 function escapeHtml(s=''){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
 render();
+
+handleSharedLaunch();
+async function handleSharedLaunch(){
+ const params=new URLSearchParams(location.search);
+ if(params.has('shareError')){showToast('Die geteilte Datei konnte nicht gelesen werden.');history.replaceState({},'',location.pathname);return}
+ if(!params.has('shared'))return;
+ history.replaceState({},'',location.pathname);
+ const shared=await readLatestShare();
+ if(!shared){showToast('Keine geteilte Datei gefunden.');return}
+ const files=shared.files||[],names=files.length?files.map(file=>escapeHtml(file.name||'Kontoauszug')).join('<br>'):'Geteilter Inhalt';
+ open(`<div class="sheet-title"><h2>Kontoauszug erhalten</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length||1} Datei(en) aus deiner Bank-App</strong><p>${names}</p></div><p class="subtitle" style="margin-top:14px">Der Kontoauszug wurde nur auf diesem Gerät gespeichert. Prüfe und ergänze die Buchungsdaten vor der Übernahme.</p><button class="primary" id="reviewShared">Import prüfen</button>`);
+ content.querySelector('#reviewShared').onclick=()=>{const first=files[0];manualForm({name:'',amount:'',type:'expense',date:new Date().toISOString().slice(0,10),method:'Girokonto',status:'review',source:first?.type==='application/pdf'?'Geteilter Kontoauszug (PDF)':'Geteilte Bankdatei'})};
+}
+function openShareDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open('moneybrain-share',1);request.onupgradeneeded=()=>request.result.createObjectStore('inbox',{keyPath:'id',autoIncrement:true});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
+async function readLatestShare(){try{const db=await openShareDb();return await new Promise((resolve,reject)=>{const tx=db.transaction('inbox','readwrite'),store=tx.objectStore('inbox'),request=store.openCursor(null,'prev');request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(null);return}const value=cursor.value;cursor.delete();resolve(value)};request.onerror=()=>reject(request.error);tx.oncomplete=()=>db.close()})}catch{return null}}

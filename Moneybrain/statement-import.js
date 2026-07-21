@@ -16,7 +16,7 @@ window.parseDeutscheBankStatement=async function(file){
   for(const row of rows){row.items.sort((a,b)=>a.x-b.x);lines.push(row.items.map(x=>x.text).join(' ').replace(/\s+/g,' ').trim())}
  }
  const full=lines.join('\n'),yearMatch=full.match(/Kontoauszug vom[^\n]*?(20\d{2})/),year=Number(yearMatch?.[1]||new Date().getFullYear());
- const header=/^(\d{2})\.(\d{2})\.\s+(\d{2})\.(\d{2})\.\s+(.+?)\s+([+-])\s+([\d.]+,\d{2})$/;
+ const header=/^(\d{2})\.(\d{2})\s*\.\s+(\d{2})\.(\d{2})\s*\.\s+(.+?)\s+([+-])\s+([\d.]+,\d{2})$/;
  const blocks=[];let current=null;
  for(const line of lines){
   const match=line.match(header);

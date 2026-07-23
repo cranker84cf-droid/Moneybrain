@@ -1,4 +1,4 @@
-const CACHE='moneybrain-v18',ASSETS=['./','index.html','styles.css','app.js','manifest.webmanifest','icon.svg','statement-import.js','vendor/pdf.min.mjs','vendor/pdf.worker.min.mjs','receipt-import.js','vendor/tesseract.min.js','vendor/tesseract-worker.min.js'];
+const CACHE='moneybrain-v19',ASSETS=['./','index.html','styles.css','app.js','manifest.webmanifest','icon.svg','statement-import.js','vendor/pdf.min.mjs','vendor/pdf.worker.min.mjs','receipt-import.js','bank-screenshot-import.js','vendor/tesseract.min.js','vendor/tesseract-worker.min.js'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{

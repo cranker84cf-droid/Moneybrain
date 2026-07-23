@@ -42,7 +42,7 @@ function manualForm(existing){const t=existing||{name:'',amount:'',type:'expense
 function detail(id){const t=state.transactions.find(x=>x.id===id);if(!t)return;const match=state.transactions.find(x=>x.id===t.matchId);open(`<div class="sheet-title"><div><span class="eyebrow">${t.type==='income'?'Sender':'Empfänger'}</span><h2>${escapeHtml(t.name)}</h2></div><button class="close">✕</button></div><div class="detail-amount ${t.type==='income'?'in':'out'}">${t.type==='income'?'+':'−'} ${euro.format(t.amount)}</div><div class="detail-list"><div class="detail-row"><span>Datum</span><strong>${new Date(t.date).toLocaleDateString('de-DE')}</strong></div><div class="detail-row"><span>Zahlungsweg</span><strong>${escapeHtml(t.method)}</strong></div><div class="detail-row"><span>Quelle</span><strong>${escapeHtml(t.source)}</strong></div><div class="detail-row"><span>Status</span><strong class="status ${t.status==='confirmed'?'ok':'open'}">${t.status==='confirmed'?'Geprüft & bestätigt':'Prüfung nötig'}</strong></div>${t.note?`<div class="detail-row"><span>Notiz</span><strong>${escapeHtml(t.note)}</strong></div>`:''}</div>${match?`<div class="review-box"><strong>Mögliche Doppelbuchung</strong><p>${escapeHtml(match.name)} · ${euro.format(match.amount)} · ${new Date(match.date).toLocaleDateString('de-DE')}<br>Datum und Empfänger weichen leicht ab.</p><div class="review-actions"><button class="secondary" id="separate">Verschieden</button><button class="secondary" id="merge">Zusammenführen</button></div></div>`:''}<div class="split" style="margin-top:18px"><button class="secondary" id="edit">Ändern</button><button class="secondary danger" id="delete">Löschen</button></div>`);content.querySelector('#edit').onclick=()=>manualForm(t);content.querySelector('#delete').onclick=()=>{if(confirm('Diese Buchung wirklich löschen?')){state.transactions=state.transactions.filter(x=>x.id!==id);save();sheet.close();render();showToast('Buchung gelöscht')}};content.querySelector('#merge')?.addEventListener('click',()=>{const keep={...t,name:t.name.length<=match.name.length?t.name:match.name,status:'confirmed',matchId:null,note:`Abgeglichen aus ${t.source} und ${match.source}`};state.transactions=state.transactions.filter(x=>x.id!==t.id&&x.id!==match.id);state.transactions.push(keep);save();sheet.close();render();showToast('Doppelbuchung zusammengeführt')});content.querySelector('#separate')?.addEventListener('click',()=>{t.status=match.status='confirmed';t.matchId=match.matchId=null;save();sheet.close();render();showToast('Als getrennte Buchungen bestätigt')})}
 function open(html){content.innerHTML='<div class="sheet-handle"></div>'+html;content.querySelector('.close')?.addEventListener('click',()=>sheet.close());sheet.showModal()}
 document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>{state.route=b.dataset.route;render()});
-document.querySelector('#fileInput').onchange=async e=>{const files=[...e.target.files];if(!files.length)return;if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}else{open(`<div class="sheet-title"><h2>Import prüfen</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length} Datei(en) bereit</strong><p>${files.map(f=>escapeHtml(f.name)).join('<br>')}</p></div><p class="subtitle" style="margin-top:14px">Bild- und PDF-Inhalte werden vor dem Speichern zur Prüfung angezeigt. Die OCR-Anbindung folgt mit deinen Beispielbelegen.</p><button class="primary" id="createFromFile">Daten manuell ergänzen</button>`);content.querySelector('#createFromFile').onclick=()=>manualForm({name:'',amount:'',type:'expense',date:new Date().toISOString().slice(0,10),method:'Girokonto',status:'review',source:files[0].type.includes('pdf')?'PDF':'Bild'})}e.target.value=''};
+document.querySelector('#fileInput').onchange=async e=>{const files=[...e.target.files];if(!files.length)return;if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}else{open(`<div class="sheet-title"><h2>Import prüfen</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length} Datei(en) bereit</strong><p>${files.map(f=>escapeHtml(f.name)).join('<br>')}</p></div><p class="subtitle" style="margin-top:14px">Bild- und PDF-Inhalte werden vor dem Speichern zur Prüfung angezeigt. PDF und Bild werden automatisch gelesen und vor dem Speichern geprÃ¼ft.</p><button class="primary" id="createFromFile">Daten manuell ergänzen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}e.target.value=''};
 async function importCsv(file){const text=await file.text(),lines=text.trim().split(/\r?\n/),sep=lines[0].includes(';')?';':',';for(const line of lines.slice(1)){const c=line.split(sep).map(x=>x.replace(/^"|"$/g,'').trim());if(c.length<3)continue;const parsed=Number(String(c[2]).replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,''));const date=parseDate(c[0]);if(!date||!Number.isFinite(parsed))continue;state.transactions.push({id:crypto.randomUUID(),date:date.toISOString(),name:c[1]||'Unbekannt',amount:Math.abs(parsed),type:parsed>=0?'income':'expense',method:'Girokonto',status:'review',source:'CSV'})}save()}
 function parseDate(s){const p=s.split(/[.\/-]/);if(p.length!==3)return null;return p[0].length===4?new Date(+p[0],+p[1]-1,+p[2],12):new Date(+p[2],+p[1]-1,+p[0],12)}
 function showToast(msg){const t=document.querySelector('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
@@ -62,13 +62,13 @@ async function handleSharedLaunch(){
  if(!shared){showToast('Keine geteilte Datei gefunden.');return}
  const files=shared.files||[],names=files.length?files.map(file=>escapeHtml(file.name||'Kontoauszug')).join('<br>'):'Geteilter Inhalt';
  open(`<div class="sheet-title"><h2>Kontoauszug erhalten</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length||1} Datei(en) aus deiner Bank-App</strong><p>${names}</p></div><p class="subtitle" style="margin-top:14px">Der Kontoauszug wurde nur auf diesem Gerät gespeichert. Prüfe und ergänze die Buchungsdaten vor der Übernahme.</p><button class="primary" id="reviewShared">Import prüfen</button>`);
- content.querySelector('#reviewShared').onclick=()=>showStatementImport(files[0]);
+ content.querySelector('#reviewShared').onclick=()=>showDocumentImport(files[0]);
 }
 function openShareDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open('moneybrain-share',1);request.onupgradeneeded=()=>request.result.createObjectStore('inbox',{keyPath:'id',autoIncrement:true});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
 async function readLatestShare(){try{const db=await openShareDb();return await new Promise((resolve,reject)=>{const tx=db.transaction('inbox','readwrite'),store=tx.objectStore('inbox'),request=store.openCursor(null,'prev');request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(null);return}const value=cursor.value;cursor.delete();resolve(value)};request.onerror=()=>reject(request.error);tx.oncomplete=()=>db.close()})}catch{return null}}
-async function showStatementImport(file){
+async function showStatementOnly(file){
  if(!file){showToast('Der Kontoauszug enthält keine Datei.');return}
- const button=content.querySelector('#reviewShared');button.disabled=true;button.textContent='Kontoauszug wird gelesen …';
+ const button=content.querySelector('#reviewShared,#createFromFile');button.disabled=true;button.textContent='Kontoauszug wird gelesen …';
  try{
   const result=await window.parseDeutscheBankStatement(file);
   open('<div class="sheet-title"><h2>Importübersicht</h2><button class="close">✕</button></div><p class="subtitle">'+result.pages+' Seiten wurden vollständig gelesen.'+(result.cashMovements?' '+result.cashMovements+' Bargeldbewegung(en) über '+euro.format(result.cashExcluded)+' werden nicht berücksichtigt.':'')+'</p><div class="year-summary"><span class="eyebrow">Erkannte Buchungen</span><strong style="font-size:30px;display:block;margin-top:8px">'+result.transactions.length+'</strong><div class="year-summary-grid"><div><small>Einnahmen</small><strong>'+euro.format(result.income)+'</strong></div><div><small>Ausgaben</small><strong>'+euro.format(result.expense)+'</strong></div></div></div><div class="detail-list"><div class="detail-row"><span>Status</span><strong class="status ok">Kontoauszug geprüft</strong></div><div class="detail-row"><span>Übernahme</span><strong>Alle Buchungen</strong></div></div><button class="primary" id="importStatement">Alle '+result.transactions.length+' Buchungen übernehmen</button><button class="secondary" style="width:100%" id="previewStatement">Buchungen ansehen</button>');
@@ -76,9 +76,45 @@ async function showStatementImport(file){
   content.querySelector('#importStatement').onclick=()=>importStatementTransactions(result.transactions);
  }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Kontoauszug nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
 }
+const matchDay=86400000;
+function transactionNameKey(value){return String(value||'').toLowerCase().replace(/gmbh|markt|marken-discount|filiale|[^a-z0-9]/g,'')}
+function sameTransactionMerchant(a,b){const left=transactionNameKey(a),right=transactionNameKey(b);return left.length>2&&right.length>2&&(left.includes(right)||right.includes(left))}
+function transactionCandidates(transaction,sourceTest){return state.transactions.filter(item=>sourceTest(item)&&item.type===transaction.type&&Math.abs(Number(item.amount)-Number(transaction.amount))<0.005&&Math.abs(new Date(item.date)-new Date(transaction.date))<=5*matchDay)}
 function importStatementTransactions(items){
  const months=new Set(items.map(item=>String(item.date).slice(0,7)));
  state.transactions=state.transactions.filter(item=>!(item.source==='Kontoauszug'&&months.has(String(item.date).slice(0,7))));
- state.transactions.push(...items);save();sheet.close();state.route='transactions';state.filter='all';render();
- showToast(items.length+' Buchungen übernommen; Bargeld ignoriert');
+ let merged=0,review=0,added=0;
+ items.forEach(bank=>{
+  const candidates=transactionCandidates(bank,item=>String(item.source||'').includes('Kassenbon'));
+  const matching=candidates.filter(item=>sameTransactionMerchant(item.name,bank.name));
+  if(matching.length===1){const receipt=matching[0];Object.assign(receipt,{bankDate:bank.date,valueDate:bank.valueDate||bank.date,method:bank.method||receipt.method,status:'confirmed',source:'Kontoauszug + Kassenbon',note:'Beleg automatisch mit Kontoauszug abgeglichen'});delete receipt.matchId;merged++;return}
+  if(candidates.length===1){bank.status='review';bank.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=bank.id;review++}else if(candidates.length>1){bank.status='review';review++}
+  state.transactions.push(bank);added++;
+ });
+ save();sheet.close();state.route='transactions';state.filter='all';render();
+ showToast(merged+' abgeglichen, '+added+' übernommen'+(review?', '+review+' zur Prüfung':'')+'; Bargeld ignoriert');
+}
+async function showDocumentImport(file){
+ if(!file){showToast('Keine Datei gefunden.');return}
+ if(/kontoauszug/i.test(file.name))return showStatementOnly(file);
+ return showReceiptImport(file);
+}
+async function showReceiptImport(file){
+ try{
+  const receipt=await window.parseRetailReceipt(file,message=>{const button=content.querySelector('#reviewShared,#createFromFile');if(button)button.textContent=message});
+  open('<div class="sheet-title"><h2>Beleg erkannt</h2><button class="close">✕</button></div><div class="detail-amount out">− '+euro.format(receipt.amount)+'</div><div class="detail-list"><div class="detail-row"><span>Händler</span><strong>'+escapeHtml(receipt.name)+'</strong></div><div class="detail-row"><span>Datum</span><strong>'+new Date(receipt.date).toLocaleDateString('de-DE')+'</strong></div><div class="detail-row"><span>Zahlungsweg</span><strong>'+escapeHtml(receipt.method)+'</strong></div><div class="detail-row"><span>Status</span><strong class="status ok">Beleg geprüft</strong></div></div><button class="primary" id="importReceipt">Buchung übernehmen</button><button class="secondary" style="width:100%" id="editReceipt">Vorher ändern</button>');
+  content.querySelector('#importReceipt').onclick=()=>importReceiptTransaction(receipt);
+  content.querySelector('#editReceipt').onclick=()=>manualForm(receipt);
+ }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Beleg nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
+}
+function importReceiptTransaction(receipt){
+ const candidates=transactionCandidates(receipt,item=>item.source==='Kontoauszug');
+ const matching=candidates.filter(item=>sameTransactionMerchant(item.name,receipt.name));
+ if(matching.length===1){
+  const bank=matching[0],bankDate=bank.date;
+  Object.assign(bank,receipt,{id:bank.id,date:receipt.date,bankDate,valueDate:bank.valueDate||bankDate,method:bank.method||receipt.method,status:'confirmed',source:'Kontoauszug + Kassenbon',note:'Beleg automatisch mit Kontoauszug abgeglichen'});delete bank.matchId;
+  save();sheet.close();render();showToast('Beleg mit Kontoauszug abgeglichen');return;
+ }
+ if(candidates.length===1){receipt.status='review';receipt.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=receipt.id}
+ state.transactions.push(receipt);save();sheet.close();render();showToast(candidates.length===1?'Mögliche Doppelbuchung zur Prüfung':'Beleg übernommen');
 }

@@ -11,6 +11,8 @@ const seed = [
  {id:'6',name:'ALDI Süd',amount:27.83,type:'expense',date:new Date(now.getFullYear(),now.getMonth()-1,20,17).toISOString(),method:'Bar',status:'confirmed',source:'Kassenbon'}
 ];
 let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),transactions:load()};
+migrateStoredTransactions();
+function migrateStoredTransactions(){let changed=false;state.transactions.forEach(item=>{if(/AOK/i.test(item.name||'')&&String(item.source||'').includes('Konto-Screenshot')&&Math.abs(Number(item.amount)-1449.84)<0.005&&item.type!=='income'){item.type='income';item.note=String(item.note||'').replace(/^Vom Konto abgebucht:/,'Auf das Konto gebucht:');changed=true}});if(changed)save()}
 function load(){try{return JSON.parse(localStorage.getItem('moneybrain.transactions'))||seed}catch{return seed}}
 function save(){localStorage.setItem('moneybrain.transactions',JSON.stringify(state.transactions))}
 const app=document.querySelector('#app'),sheet=document.querySelector('#sheet'),content=document.querySelector('#sheetContent');
@@ -122,8 +124,8 @@ async function showBankScreenshotImport(files){
 function importBankScreenshotTransactions(items){
  let merged=0,review=0,added=0;
  items.forEach(bank=>{
-  const duplicate=state.transactions.find(item=>String(item.source||'').includes('Konto-Screenshot')&&item.type===bank.type&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&String(item.bankDate||item.date).slice(0,10)===String(bank.bankDate||bank.date).slice(0,10)&&sameTransactionMerchant(item.name,bank.name));
-  if(duplicate)return;
+  const duplicate=state.transactions.find(item=>String(item.source||'').includes('Konto-Screenshot')&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&String(item.bankDate||item.date).slice(0,10)===String(bank.bankDate||bank.date).slice(0,10)&&sameTransactionMerchant(item.name,bank.name));
+  if(duplicate){const id=duplicate.id,purchaseDate=String(duplicate.source||'').includes('Kassenbon')?duplicate.date:bank.date;Object.assign(duplicate,bank,{id,date:purchaseDate});merged++;return}
   const statement=state.transactions.find(item=>item.source==='Kontoauszug'&&item.type===bank.type&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&Math.abs(new Date(item.date)-new Date(bank.bankDate||bank.date))<=matchDay&&sameTransactionMerchant(item.name,bank.name));
   if(statement){statement.source='Kontoauszug + Konto-Screenshot';statement.note=bank.note;merged++;return}
   const candidates=bank.date?transactionCandidates(bank,item=>String(item.source||'').includes('Kassenbon')):[],matching=candidates.filter(item=>sameTransactionMerchant(item.name,bank.name));

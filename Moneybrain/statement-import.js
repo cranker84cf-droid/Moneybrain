@@ -35,12 +35,13 @@ window.parseDeutscheBankStatement=async function(file){
   if(cashOnly){cashMovements++;cashExcluded+=amount;return null}
   if(cashAmount){cashMovements++;cashExcluded+=cashAmount;amount=Math.max(0,amount-cashAmount)}
   if(amount<0.005)return null;
-  return {id:crypto.randomUUID(),name:party,amount:Math.round(amount*100)/100,type:sign==='+'?'income':'expense',date:new Date(year,Number(month)-1,Number(day),12).toISOString(),valueDate:new Date(year,Number(valueMonth)-1,Number(valueDay),12).toISOString(),method:/Kartenzahlung/i.test(bookingKind)?'Girokarte':'Girokonto',status:'confirmed',source:'Kontoauszug',note:bookingKind,importOrder:index};
+  return {id:crypto.randomUUID(),name:party,amount:Math.round(amount*100)/100,type:sign==='+'?'income':'expense',date:new Date(year,Number(month)-1,Number(day),12).toISOString(),valueDate:new Date(year,Number(valueMonth)-1,Number(valueDay),12).toISOString(),method:/Kartenzahlung/i.test(bookingKind)?'Girokarte':'Girokonto',status:'confirmed',source:'Kontoauszug',note:statementNote(details,bookingKind),importOrder:index};
  }).filter(Boolean);
  if(!transactions.length)throw new Error('Keine Buchungszeilen erkannt');
  return {transactions,pages:pdf.numPages,year,income:sum(transactions,'income'),expense:sum(transactions,'expense'),cashMovements,cashExcluded:Math.round(cashExcluded*100)/100};
 };
 function sum(items,type){return items.filter(x=>x.type===type).reduce((total,x)=>total+x.amount,0)}
+function statementNote(details,kind){const lines=[kind,...details.slice(0,8)].map(line=>String(line).replace(/^\d{4}\s+\d{4}\s+/,'').replace(/Verwendungszweck\s*\/\s*Kundenreferenz/ig,'').replace(/\s+/g,' ').trim()).filter(line=>line&&!/^(Buchung Valuta|Auszug Seite|IBAN|BIC)$/i.test(line));return [...new Set(lines)].join('\n')}
 function findParty(details,kind){
  const cleaned=details.map(line=>line.replace(/^\d{4}\s+\d{4}\s+/,'').replace(/Verwendungszweck\s*\/\s*Kundenreferenz/ig,'').trim()).filter(Boolean);
  const skip=/^(Gl.ubiger-ID|Mand-ID|RCUR|OTHR|CORE|Buchung Valuta|Auszug Seite|IBAN|BIC|\d+\/\d+\/\d+)\b/i;

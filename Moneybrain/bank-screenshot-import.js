@@ -14,7 +14,7 @@ window.parseBankScreenshots=async function(files,onProgress=()=>{}){
     const next=[];for(let n=i+1;n<Math.min(lines.length,i+6);n++){if(bankHeaderDate(lines[n])||bankScreenshotAmount(lines[n]))break;next.push(lines[n])}
     const context=[...lines.slice(Math.max(0,i-2),i+1),...next],purchase=bankPurchaseDate(next.join(' '));
     const date=purchase||bankDate,merchant=bankScreenshotMerchant(context,lines[i].slice(0,amount.index));
-    transactions.push({id:crypto.randomUUID(),name:merchant,amount:amount.value,type:amount.sign==='+'?'income':'expense',date:date?date.toISOString():'',bankDate:bankDate?bankDate.toISOString():'',method:/PayPal/i.test(merchant)?'PayPal':/Versicherung|HUK/i.test(merchant)?'Girokonto':'Girokarte',status:date&&bankDate?'confirmed':'review',source:'Konto-Screenshot',note:(bankDate?'Vom Konto abgebucht: '+bankDate.toLocaleDateString('de-DE'):'Buchungsdatum fehlt – bitte prüfen')+'\n'+next.join('\n'),screenshot:{filename:ordered[fileIndex].name,recognizedAt:new Date().toISOString()}})
+    transactions.push({id:crypto.randomUUID(),name:merchant,amount:amount.value,type:amount.sign==='+'?'income':'expense',date:date?date.toISOString():'',bankDate:bankDate?bankDate.toISOString():'',method:/PayPal/i.test(merchant)?'PayPal':/Versicherung|HUK/i.test(merchant)?'Girokonto':'Girokarte',status:date&&bankDate?'confirmed':'review',source:'Konto-Screenshot',note:(bankDate?(amount.sign==='+'?'Auf das Konto gebucht: ':'Vom Konto abgebucht: ')+bankDate.toLocaleDateString('de-DE'):'Buchungsdatum fehlt – bitte prüfen')+'\n'+next.join('\n'),screenshot:{filename:ordered[fileIndex].name,recognizedAt:new Date().toISOString()}})
    }
   }
  }finally{await worker.terminate()}

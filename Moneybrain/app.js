@@ -134,10 +134,10 @@ function importStatementTransactions(items){
 async function showBankScreenshotImport(files){
  const button=content.querySelector('#bankScreenshots');if(button){button.disabled=true;button.textContent='Bilderkennung wird vorbereitet …'}
  try{
-  const result=await window.parseBankScreenshots(files,message=>{if(button)button.textContent=message});
+  const result=await window.parseBankScreenshots(files,message=>{if(button)button.textContent=message}),safe=result.transactions.filter(item=>item.status!=='review'),unsafe=result.transactions.filter(item=>item.status==='review');
   const preview=result.transactions.map(item=>`<div class="detail-row"><span>${item.date?new Date(item.date).toLocaleDateString('de-DE'):'Datum fehlt'} · ${escapeHtml(item.name)}</span><strong>${item.type==='income'?'+':'−'} ${euro.format(item.amount)}${item.status==='review'?' !':''}</strong></div>`).join('');
-  open(`<div class="sheet-title"><h2>Konto-Screenshots</h2><button class="close">✕</button></div><p class="subtitle">${files.length} Bilder wurden gemeinsam und nach Dateinamen sortiert gelesen.</p><div class="detail-list">${preview}</div>${result.missingDates?`<div class="review-box"><strong>${result.missingDates} Buchung(en) ohne sicheres Datum</strong><p>Diese werden mit ! markiert und müssen anschließend ergänzt werden.</p></div>`:''}<button class="primary" id="importBankScreenshots">Alle ${result.transactions.length} Buchungen übernehmen</button>`);
-  content.querySelector('#importBankScreenshots').onclick=()=>importBankScreenshotTransactions(result.transactions);
+  open(`<div class="sheet-title"><h2>Konto-Screenshots</h2><button class="close">✕</button></div><p class="subtitle">${files.length} Bilder wurden gemeinsam gelesen.${result.removedDuplicates?' '+result.removedDuplicates+' Überschneidung(en) wurden entfernt.':''}</p><div class="detail-list">${preview}</div>${unsafe.length?`<div class="review-box"><strong>${unsafe.length} unsichere Buchung(en)</strong><p>Einträge mit ! werden aus Sicherheitsgründen nicht übernommen. Sie können manuell ergänzt oder später über den Kontoauszug importiert werden.</p></div>`:''}<button class="primary" id="importBankScreenshots">${safe.length} sichere Buchungen übernehmen</button>`);
+  const importButton=content.querySelector('#importBankScreenshots');importButton.disabled=!safe.length;importButton.onclick=()=>importBankScreenshotTransactions(safe);
  }catch(error){open(`<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Konto-Screenshots nicht erkannt</strong><p>${escapeHtml(error.message)}</p></div>`)}
 }
 function importBankScreenshotTransactions(items){

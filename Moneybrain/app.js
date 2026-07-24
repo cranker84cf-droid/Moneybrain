@@ -11,27 +11,7 @@ const seed = [
  {id:'6',name:'ALDI Süd',amount:27.83,type:'expense',date:new Date(now.getFullYear(),now.getMonth()-1,20,17).toISOString(),method:'Bar',status:'confirmed',source:'Kassenbon'}
 ];
 let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),transactions:load()};
-migrateStoredTransactions();
-function migrateStoredTransactions(){
- let changed=false;
- state.transactions.forEach(item=>{
-  const bankDay=String(item.bankDate||item.date).slice(0,10),source=String(item.source||'');
-  if(source.includes('Konto-Screenshot')&&/Amazon/i.test(item.name||'')&&bankDay==='2026-07-03'&&Math.abs(Number(item.amount)-796.92)<0.005){item.amount=56.92;item.type='expense';item.status='confirmed';delete item.amountUncertain;changed=true}
-  if(source.includes('Konto-Screenshot')&&/Amazon/i.test(item.name||'')&&bankDay==='2026-07-01'&&Math.abs(Number(item.amount)-725.18)<0.005){item.amount=25.18;item.type='expense';item.status='confirmed';delete item.amountUncertain;changed=true}
-  if(source.includes('Konto-Screenshot')&&/HUK/i.test(item.name||'')&&bankDay==='2026-07-01'&&Math.abs(Number(item.amount)-721.08)<0.005){item.amount=17.16;item.type='expense';item.status='confirmed';delete item.amountUncertain;changed=true}
-  if(/AOK/i.test(item.name||'')&&String(item.source||'').includes('Konto-Screenshot')&&Math.abs(Number(item.amount)-1449.84)<0.005&&item.type!=='income'){item.type='income';item.note=String(item.note||'').replace(/^Vom Konto abgebucht:/,'Auf das Konto gebucht:');changed=true}
-  if(/Deutsche\s*Post/i.test(item.name||'')&&String(item.source||'').includes('Konto-Screenshot')&&item.type!=='income'){item.type='income';item.note=String(item.note||'').replace(/^Vom Konto abgebucht:/,'Auf das Konto gebucht:');delete item.amountUncertain;item.status='confirmed';changed=true}
-  if(String(item.source||'').includes('Konto-Screenshot')&&!String(item.source||'').includes('Kontoauszug')&&!/AOK/i.test(item.name||'')&&String(item.bankDate||item.date).slice(0,7)==='2026-07'&&item.type==='income'){item.type='expense';item.note=String(item.note||'').replace(/^Auf das Konto gebucht:/,'Vom Konto abgebucht:');changed=true}
-  if(source.includes('Konto-Screenshot')&&Number(item.amount)>=700&&Number(item.amount)<800&&!/AOK|kwg|Kreiswohnbau/i.test(item.name||'')){item.amountUncertain=true;item.status='review';changed=true}
-  if(item.name==='PayPal'&&String(item.source||'').includes('Konto-Screenshot')&&(/Vorgemerkt/i.test(item.note||'')||(Math.abs(Number(item.amount)-101.81)<0.005&&String(item.bankDate||item.date).slice(0,10)==='2026-07-24'))){item.name='Kartenzahlung';item.method='Girokarte';changed=true}
- });
- const remove=new Set();
- state.transactions.filter(item=>String(item.source||'').includes('Konto-Screenshot')&&isGenericBankMerchant(item.name)).forEach(bank=>{
-  const receipts=state.transactions.filter(item=>item.id!==bank.id&&String(item.source||'').includes('Kassenbon')&&item.type===bank.type&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&Math.abs(new Date(item.date)-new Date(bank.date))<=5*86400000);
-  if(receipts.length===1){const receipt=receipts[0];Object.assign(receipt,{bankDate:bank.bankDate||bank.date,method:bank.method,status:'confirmed',source:'Konto-Screenshot + Kassenbon',note:bankDateNote(bank.type,bank.bankDate||bank.date)});delete receipt.matchId;remove.add(bank.id);changed=true}
- });
- if(remove.size)state.transactions=state.transactions.filter(item=>!remove.has(item.id));if(changed)save();
-}
+
 function load(){try{return JSON.parse(localStorage.getItem('moneybrain.transactions'))||seed}catch{return seed}}
 function save(){localStorage.setItem('moneybrain.transactions',JSON.stringify(state.transactions))}
 const app=document.querySelector('#app'),sheet=document.querySelector('#sheet'),content=document.querySelector('#sheetContent');
@@ -68,12 +48,7 @@ document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>{state.
 document.querySelector('#fileInput').onchange=async e=>{
  const files=[...e.target.files];if(!files.length)return;
  if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}
- else if(files.every(file=>file.type.startsWith('image/'))){
-  open(`<div class="sheet-title"><h2>Bildimport wählen</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length} Bild(er) bereit</strong><p>${files.map(f=>escapeHtml(f.name)).join('<br>')}</p></div><p class="subtitle" style="margin-top:14px">Konto-Screenshots bitte gemeinsam auswählen. Moneybrain sortiert sie automatisch nach dem Dateinamen.</p><button class="primary" id="bankScreenshots">Als Konto-Screenshots importieren</button><button class="secondary" style="width:100%;margin-top:10px" id="receiptImage">Als Kassenbon importieren</button>`);
-  content.querySelector('#bankScreenshots').onclick=()=>showBankScreenshotImport(files);content.querySelector('#receiptImage').onclick=()=>showDocumentImport(files[0]);
- }else{
-  open(`<div class="sheet-title"><h2>Import prüfen</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length} Datei(en) bereit</strong><p>${files.map(f=>escapeHtml(f.name)).join('<br>')}</p></div><p class="subtitle" style="margin-top:14px">PDF- und Dateiinhalte werden vor dem Speichern geprüft.</p><button class="primary" id="createFromFile">Import prüfen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0]);
- }
+ else{open(`<div class="sheet-title"><h2>Import prüfen</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length} Datei(en) bereit</strong><p>${files.map(f=>escapeHtml(f.name)).join('<br>')}</p></div>${files.length>1?'<div class="review-box"><strong>Mehrfachimport nicht verfügbar</strong><p>Bitte PDF-Kontoauszüge und Kassenbons einzeln importieren. Der unzuverlässige Bank-Screenshot-Import wurde deaktiviert.</p></div>':''}<button class="primary" id="createFromFile">Datei prüfen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}
  e.target.value='';
 };
 async function importCsv(file){const text=await file.text(),lines=text.trim().split(/\r?\n/),sep=lines[0].includes(';')?';':',';for(const line of lines.slice(1)){const c=line.split(sep).map(x=>x.replace(/^"|"$/g,'').trim());if(c.length<3)continue;const parsed=Number(String(c[2]).replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,''));const date=parseDate(c[0]);if(!date||!Number.isFinite(parsed))continue;state.transactions.push({id:crypto.randomUUID(),date:date.toISOString(),name:c[1]||'Unbekannt',amount:Math.abs(parsed),type:parsed>=0?'income':'expense',method:'Girokonto',status:'review',source:'CSV'})}save()}
@@ -132,29 +107,7 @@ function importStatementTransactions(items){
  save();sheet.close();state.route='transactions';state.filter='all';render();
  showToast(merged+' abgeglichen, '+added+' übernommen'+(review?', '+review+' zur Prüfung':'')+'; Bargeld ignoriert');
 }
-async function showBankScreenshotImport(files){
- const button=content.querySelector('#bankScreenshots');if(button){button.disabled=true;button.textContent='Bilderkennung wird vorbereitet …'}
- try{
-  const result=await window.parseBankScreenshots(files,message=>{if(button)button.textContent=message}),safe=result.transactions.filter(item=>item.status!=='review'),unsafe=result.transactions.filter(item=>item.status==='review');
-  const preview=result.transactions.map(item=>`<div class="detail-row"><span>${item.date?new Date(item.date).toLocaleDateString('de-DE'):'Datum fehlt'} · ${escapeHtml(item.name)}</span><strong>${item.type==='income'?'+':'−'} ${euro.format(item.amount)}${item.status==='review'?' !':''}</strong></div>`).join('');
-  open(`<div class="sheet-title"><h2>Konto-Screenshots</h2><button class="close">✕</button></div><p class="subtitle">${files.length} Bilder wurden gemeinsam gelesen.${result.removedDuplicates?' '+result.removedDuplicates+' Überschneidung(en) wurden entfernt.':''}</p><div class="detail-list">${preview}</div>${unsafe.length?`<div class="review-box"><strong>${unsafe.length} unsichere Buchung(en)</strong><p>Einträge mit ! werden aus Sicherheitsgründen nicht übernommen. Sie können manuell ergänzt oder später über den Kontoauszug importiert werden.</p></div>`:''}<button class="primary" id="importBankScreenshots">${safe.length} sichere Buchungen übernehmen</button>`);
-  const importButton=content.querySelector('#importBankScreenshots');importButton.disabled=!safe.length;importButton.onclick=()=>importBankScreenshotTransactions(safe);
- }catch(error){open(`<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Konto-Screenshots nicht erkannt</strong><p>${escapeHtml(error.message)}</p></div>`)}
-}
-function importBankScreenshotTransactions(items){
- let merged=0,review=0,added=0;
- items.forEach(bank=>{
-  const duplicate=state.transactions.find(item=>String(item.source||'').includes('Konto-Screenshot')&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&String(item.bankDate||item.date).slice(0,10)===String(bank.bankDate||bank.date).slice(0,10)&&sameTransactionMerchant(item.name,bank.name));
-  if(duplicate){const id=duplicate.id,purchaseDate=String(duplicate.source||'').includes('Kassenbon')?duplicate.date:bank.date;Object.assign(duplicate,bank,{id,date:purchaseDate});merged++;return}
-  const statement=state.transactions.find(item=>item.source==='Kontoauszug'&&item.type===bank.type&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&Math.abs(new Date(item.date)-new Date(bank.bankDate||bank.date))<=matchDay&&sameTransactionMerchant(item.name,bank.name));
-  if(statement){statement.source='Kontoauszug + Konto-Screenshot';statement.note=bank.note;merged++;return}
-  const candidates=bank.date?transactionCandidates(bank,item=>String(item.source||'').includes('Kassenbon')):[],matching=candidates.filter(item=>sameTransactionMerchant(item.name,bank.name));
-  if(matching.length===1){const receipt=matching[0];Object.assign(receipt,{bankDate:bank.bankDate||bank.date,method:bank.method,status:'confirmed',source:'Konto-Screenshot + Kassenbon',note:bank.note});delete receipt.matchId;merged++;return}
-  if(candidates.length===1){bank.status='review';bank.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=bank.id;review++}else if(bank.status==='review'){review++}
-  state.transactions.push(bank);added++;
- });
- save();sheet.close();state.route='transactions';state.filter='all';render();showToast(merged+' abgeglichen, '+added+' übernommen'+(review?', '+review+' zur Prüfung':''));
-}
+
 async function showDocumentImport(file){
  if(!file){showToast('Keine Datei gefunden.');return}
  if(/kontoauszug/i.test(file.name))return showStatementOnly(file);

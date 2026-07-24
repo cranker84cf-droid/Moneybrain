@@ -16,6 +16,7 @@ function migrateStoredTransactions(){
  let changed=false;
  state.transactions.forEach(item=>{
   if(/AOK/i.test(item.name||'')&&String(item.source||'').includes('Konto-Screenshot')&&Math.abs(Number(item.amount)-1449.84)<0.005&&item.type!=='income'){item.type='income';item.note=String(item.note||'').replace(/^Vom Konto abgebucht:/,'Auf das Konto gebucht:');changed=true}
+  if(String(item.source||'').includes('Konto-Screenshot')&&!String(item.source||'').includes('Kontoauszug')&&!/AOK/i.test(item.name||'')&&String(item.bankDate||item.date).slice(0,7)==='2026-07'&&item.type==='income'){item.type='expense';item.note=String(item.note||'').replace(/^Auf das Konto gebucht:/,'Vom Konto abgebucht:');changed=true}
   if(item.name==='PayPal'&&String(item.source||'').includes('Konto-Screenshot')&&(/Vorgemerkt/i.test(item.note||'')||(Math.abs(Number(item.amount)-101.81)<0.005&&String(item.bankDate||item.date).slice(0,10)==='2026-07-24'))){item.name='Kartenzahlung';item.method='Girokarte';changed=true}
  });
  const remove=new Set();

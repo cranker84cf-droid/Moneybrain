@@ -12,7 +12,19 @@ const seed = [
 ];
 let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),transactions:load()};
 migrateStoredTransactions();
-function migrateStoredTransactions(){let changed=false;state.transactions.forEach(item=>{if(/AOK/i.test(item.name||'')&&String(item.source||'').includes('Konto-Screenshot')&&Math.abs(Number(item.amount)-1449.84)<0.005&&item.type!=='income'){item.type='income';item.note=String(item.note||'').replace(/^Vom Konto abgebucht:/,'Auf das Konto gebucht:');changed=true}});if(changed)save()}
+function migrateStoredTransactions(){
+ let changed=false;
+ state.transactions.forEach(item=>{
+  if(/AOK/i.test(item.name||'')&&String(item.source||'').includes('Konto-Screenshot')&&Math.abs(Number(item.amount)-1449.84)<0.005&&item.type!=='income'){item.type='income';item.note=String(item.note||'').replace(/^Vom Konto abgebucht:/,'Auf das Konto gebucht:');changed=true}
+  if(item.name==='PayPal'&&String(item.source||'').includes('Konto-Screenshot')&&(/Vorgemerkt/i.test(item.note||'')||(Math.abs(Number(item.amount)-101.81)<0.005&&String(item.bankDate||item.date).slice(0,10)==='2026-07-24'))){item.name='Kartenzahlung';item.method='Girokarte';changed=true}
+ });
+ const remove=new Set();
+ state.transactions.filter(item=>String(item.source||'').includes('Konto-Screenshot')&&isGenericBankMerchant(item.name)).forEach(bank=>{
+  const receipts=state.transactions.filter(item=>item.id!==bank.id&&String(item.source||'').includes('Kassenbon')&&item.type===bank.type&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&Math.abs(new Date(item.date)-new Date(bank.date))<=5*86400000);
+  if(receipts.length===1){const receipt=receipts[0];Object.assign(receipt,{bankDate:bank.bankDate||bank.date,method:bank.method,status:'confirmed',source:'Konto-Screenshot + Kassenbon',note:bankDateNote(bank.type,bank.bankDate||bank.date)});delete receipt.matchId;remove.add(bank.id);changed=true}
+ });
+ if(remove.size)state.transactions=state.transactions.filter(item=>!remove.has(item.id));if(changed)save();
+}
 function load(){try{return JSON.parse(localStorage.getItem('moneybrain.transactions'))||seed}catch{return seed}}
 function save(){localStorage.setItem('moneybrain.transactions',JSON.stringify(state.transactions))}
 const app=document.querySelector('#app'),sheet=document.querySelector('#sheet'),content=document.querySelector('#sheetContent');
@@ -92,6 +104,7 @@ async function showStatementOnly(file){
  }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Kontoauszug nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
 }
 const matchDay=86400000;
+function isGenericBankMerchant(name){return /^(Kartenzahlung|Unbekannte Buchung)$/i.test(String(name||''))}
 function transactionNameKey(value){return String(value||'').toLowerCase().replace(/gmbh|markt|marken-discount|filiale|[^a-z0-9]/g,'')}
 function sameTransactionMerchant(a,b){const left=transactionNameKey(a),right=transactionNameKey(b);return left.length>2&&right.length>2&&(left.includes(right)||right.includes(left))}
 function transactionCandidates(transaction,sourceTest){return state.transactions.filter(item=>sourceTest(item)&&item.type===transaction.type&&Math.abs(Number(item.amount)-Number(transaction.amount))<0.005&&Math.abs(new Date(item.date)-new Date(transaction.date))<=5*matchDay)}
@@ -149,11 +162,11 @@ async function showReceiptImport(file){
  }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Beleg nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
 }
 function importReceiptTransaction(receipt){
- const candidates=transactionCandidates(receipt,item=>item.source==='Kontoauszug');
- const matching=candidates.filter(item=>sameTransactionMerchant(item.name,receipt.name));
+ const candidates=transactionCandidates(receipt,item=>String(item.source||'').includes('Kontoauszug')||String(item.source||'').includes('Konto-Screenshot'));
+ const matching=candidates.filter(item=>sameTransactionMerchant(item.name,receipt.name)||isGenericBankMerchant(item.name));
  if(matching.length===1){
-  const bank=matching[0],bankDate=bank.date;
-  Object.assign(bank,receipt,{id:bank.id,date:receipt.date,bankDate,valueDate:bank.valueDate||bankDate,method:bank.method||receipt.method,status:'confirmed',source:'Kontoauszug + Kassenbon',note:bankDateNote(bank.type,bank.date)});delete bank.matchId;
+  const bank=matching[0],bankDate=bank.bankDate||bank.date,fromScreenshot=String(bank.source||'').includes('Konto-Screenshot');
+  Object.assign(bank,receipt,{id:bank.id,date:receipt.date,bankDate,valueDate:bank.valueDate||bankDate,method:bank.method||receipt.method,status:'confirmed',source:(fromScreenshot?'Konto-Screenshot':'Kontoauszug')+' + Kassenbon',note:bankDateNote(bank.type,bankDate)});delete bank.matchId;
   save();sheet.close();render();showToast('Beleg mit Kontoauszug abgeglichen');return;
  }
  if(candidates.length===1){receipt.status='review';receipt.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=receipt.id}

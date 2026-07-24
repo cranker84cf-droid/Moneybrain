@@ -33,5 +33,6 @@ function bankScreenshotMerchant(lines,beforeAmount){
  return (candidates[0]||'Unbekannte Buchung').replace(/[+\-−–]?\s*\d+[,.]\d{2}\s*(?:€|EUR)?.*$/,'').trim().slice(0,90);
 }
 function knownBankMerchant(text){
+ if(/^\s*Kartenzahlung\s*$/i.test(text))return 'Kartenzahlung';
  if(/DECATHLON/i.test(text))return 'Decathlon';if(/FRESSNAPF/i.test(text))return 'Fressnapf';if(/PAYPAL/i.test(text))return 'PayPal';if(/HUK.?COBURG/i.test(text))return 'HUK-Coburg';if(/AOK/i.test(text))return 'AOK Niedersachsen';if(/EDEKA/i.test(text))return 'Edeka';if(/AMAZON/i.test(text))return 'Amazon';if(/WIGLO/i.test(text))return 'Wiglo';if(/ADYEN/i.test(text))return 'Adyen';return '';
 }

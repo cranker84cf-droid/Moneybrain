@@ -48,7 +48,8 @@ document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>{state.
 document.querySelector('#fileInput').onchange=async e=>{
  const files=[...e.target.files];if(!files.length)return;
  if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}
- else{open(`<div class="sheet-title"><h2>Import prüfen</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length} Datei(en) bereit</strong><p>${files.map(f=>escapeHtml(f.name)).join('<br>')}</p></div>${files.length>1?'<div class="review-box"><strong>Mehrfachimport nicht verfügbar</strong><p>Bitte PDF-Kontoauszüge und Kassenbons einzeln importieren. Der unzuverlässige Bank-Screenshot-Import wurde deaktiviert.</p></div>':''}<button class="primary" id="createFromFile">Datei prüfen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}
+ else if(files.length>1){showReceiptBatchImport(files)}
+ else{open(`<div class="sheet-title"><h2>Import pr?fen</h2><button class="close">?</button></div><div class="import-box"><strong>1 Datei bereit</strong><p>${escapeHtml(files[0].name)}</p></div><button class="primary" id="createFromFile">Datei pr?fen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}
  e.target.value='';
 };
 async function importCsv(file){const text=await file.text(),lines=text.trim().split(/\r?\n/),sep=lines[0].includes(';')?';':',';for(const line of lines.slice(1)){const c=line.split(sep).map(x=>x.replace(/^"|"$/g,'').trim());if(c.length<3)continue;const parsed=Number(String(c[2]).replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,''));const date=parseDate(c[0]);if(!date||!Number.isFinite(parsed))continue;state.transactions.push({id:crypto.randomUUID(),date:date.toISOString(),name:c[1]||'Unbekannt',amount:Math.abs(parsed),type:parsed>=0?'income':'expense',method:'Girokonto',status:'review',source:'CSV'})}save()}
@@ -120,6 +121,23 @@ async function showReceiptImport(file){
   content.querySelector('#importReceipt').onclick=()=>importReceiptTransaction(receipt);
   content.querySelector('#editReceipt').onclick=()=>manualForm(receipt);
  }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Beleg nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
+}
+async function showReceiptBatchImport(files){
+ if(files.some(file=>/kontoauszug/i.test(file.name))){open('<div class="sheet-title"><h2>Getrennter Import n?tig</h2><button class="close">?</button></div><div class="review-box"><strong>Kontoausz?ge bitte einzeln importieren</strong><p>Mehrere Kassenbons k?nnen gemeinsam gelesen werden. Bank-Screenshots werden aus Sicherheitsgr?nden nicht als Stapel ?bernommen.</p></div>');return}
+ open('<div class="sheet-title"><h2>Belege werden gelesen</h2><button class="close">?</button></div><div class="import-box"><strong id="batchProgress">0 von '+files.length+' Belegen gepr?ft</strong><p>PDFs und Bilder werden nacheinander ausgewertet.</p></div>');
+ const receipts=[],errors=[];
+ for(let index=0;index<files.length;index++){const file=files[index];try{receipts.push(await window.parseRetailReceipt(file,message=>{const progress=content.querySelector('#batchProgress');if(progress)progress.textContent=(index+1)+' von '+files.length+': '+message}))}catch(error){errors.push({file,error})}const progress=content.querySelector('#batchProgress');if(progress)progress.textContent=(index+1)+' von '+files.length+' Belegen gepr?ft'}
+ if(!receipts.length){open('<div class="sheet-title"><h2>Import nicht m?glich</h2><button class="close">?</button></div><div class="review-box"><strong>Keine Kassenbons erkannt</strong><p>Bank-Umsatzlisten k?nnen nicht ?ber den Belegstapel importiert werden. Verwende daf?r am Monatsende den PDF-Kontoauszug.</p></div>');return}
+ const rows=receipts.map(receipt=>'<div class="detail-row"><span>'+escapeHtml(receipt.name)+'<br><small>'+new Date(receipt.date).toLocaleDateString('de-DE')+'</small></span><strong>? '+euro.format(receipt.amount)+'</strong></div>').join('');
+ open('<div class="sheet-title"><h2>Belege erkannt</h2><button class="close">?</button></div><p class="subtitle">'+receipts.length+' von '+files.length+' Belegen wurden sicher erkannt.</p><div class="detail-list">'+rows+'</div>'+(errors.length?'<div class="review-box"><strong>'+errors.length+' nicht erkannt</strong><p>Diese Dateien werden nicht ?bernommen.</p></div>':'')+'<button class="primary" id="importReceiptBatch">Alle '+receipts.length+' Belege ?bernehmen</button>');
+ content.querySelector('#importReceiptBatch').onclick=()=>{for(const receipt of receipts)importReceiptIntoState(receipt);save();sheet.close();render();showToast(receipts.length+' Belege ?bernommen')};
+}
+function importReceiptIntoState(receipt){
+ const candidates=transactionCandidates(receipt,item=>String(item.source||'').includes('Kontoauszug'));
+ const matching=candidates.filter(item=>sameTransactionMerchant(item.name,receipt.name)||isGenericBankMerchant(item.name));
+ if(matching.length===1){const bank=matching[0],bankDate=bank.bankDate||bank.date;Object.assign(bank,receipt,{id:bank.id,date:receipt.date,bankDate,valueDate:bank.valueDate||bankDate,method:bank.method||receipt.method,status:'confirmed',source:'Kontoauszug + Kassenbon',note:bankDateNote(bank.type,bankDate)});delete bank.matchId;return}
+ if(candidates.length===1){receipt.status='review';receipt.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=receipt.id}
+ state.transactions.push(receipt);
 }
 function importReceiptTransaction(receipt){
  const candidates=transactionCandidates(receipt,item=>String(item.source||'').includes('Kontoauszug')||String(item.source||'').includes('Konto-Screenshot'));

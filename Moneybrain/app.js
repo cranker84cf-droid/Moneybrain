@@ -48,7 +48,7 @@ document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>{state.
 document.querySelector('#fileInput').onchange=async e=>{
  const files=[...e.target.files];if(!files.length)return;
  if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}
- else if(files.length>1){isBankScreenshotBatch(files)?showBankScreenshotImport(files):showReceiptBatchImport(files)}
+ else if(files.length>1){isBankScreenshotBatch(files)?showBankScreenshotDisabled():showReceiptBatchImport(files)}
  else{open(`<div class="sheet-title"><h2>Import pr?fen</h2><button class="close">&times;</button></div><div class="import-box"><strong>1 Datei bereit</strong><p>${escapeHtml(files[0].name)}</p></div><button class="primary" id="createFromFile">Datei pr?fen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}
  e.target.value='';
 };
@@ -113,29 +113,13 @@ function importStatementTransactions(items){
 
 function isBankScreenshotFile(file){return /deutsche.?bank|konto.?screenshot|konto.?umsatz/i.test(String(file?.name||''))}
 function isBankScreenshotBatch(files){return files.length>0&&files.every(file=>file.type.startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(file.name))&&files.some(isBankScreenshotFile)}
-async function showBankScreenshotImport(files){
- open('<div class="sheet-title"><h2>Bank-Screenshots</h2><button class="close">&times;</button></div><div class="import-box"><strong id="bankProgress">Bilderkennung wird vorbereitet ...</strong><p>'+files.length+' Screenshot(s) werden gemeinsam gelesen.</p></div>');
- try{
-  const result=await window.parseBankScreenshots(files,message=>{const progress=content.querySelector('#bankProgress');if(progress)progress.textContent=message});
-  const safe=result.transactions.filter(item=>!item.amountUncertain&&item.date&&item.bankDate),uncertain=result.transactions.filter(item=>!safe.includes(item));
-  const rows=result.transactions.map(item=>'<div class="detail-row"><span>'+escapeHtml(item.name)+(item.amountUncertain?' <b class="warning">!</b>':'')+'<br><small>'+formatTransactionDate(item.date||item.bankDate,true)+'</small></span><strong>'+(item.type==='income'?'+':'&minus;')+' '+euro.format(item.amount)+'</strong></div>').join('');
-  open('<div class="sheet-title"><h2>Bank-Screenshots</h2><button class="close">&times;</button></div><p class="subtitle">'+files.length+' Bilder gemeinsam gelesen'+(result.removedDuplicates?', '+result.removedDuplicates+' Ueberschneidung(en) entfernt':'')+'.</p><div class="detail-list">'+rows+'</div>'+(uncertain.length?'<div class="review-box"><strong>'+uncertain.length+' unsichere Buchung(en)</strong><p>Mit ! markierte Eintraege werden nicht automatisch uebernommen.</p></div>':'')+(safe.length?'<button class="primary" id="importSafeBankScreenshots">'+safe.length+' sichere Buchungen ?bernehmen</button>':''));
-  content.querySelector('#importSafeBankScreenshots')?.addEventListener('click',()=>importBankScreenshotTransactions(safe));
- }catch(error){open('<div class="sheet-title"><h2>Import nicht moeglich</h2><button class="close">&times;</button></div><div class="review-box"><strong>Bank-Screenshots nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
-}
-function importBankScreenshotTransactions(items){
- let added=0,skipped=0;
- for(const item of items){
-  const duplicate=state.transactions.some(existing=>existing.type===item.type&&Math.abs(Number(existing.amount)-Number(item.amount))<0.005&&Math.abs(new Date(existing.bankDate||existing.date)-new Date(item.bankDate||item.date))<=matchDay&&sameTransactionMerchant(existing.name,item.name));
-  if(duplicate){skipped++;continue}
-  state.transactions.push(item);added++;
- }
- save();sheet.close();state.route='transactions';state.filter='all';render();showToast(added+' uebernommen'+(skipped?', '+skipped+' bereits vorhanden':''));
+function showBankScreenshotDisabled(){
+ open('<div class="sheet-title"><h2>Bank-Screenshots deaktiviert</h2><button class="close">&times;</button></div><div class="review-box"><strong>Bitte Kontoauszug oder Kontoumsaetze als PDF verwenden</strong><p>Bank-Screenshots werden wegen unzuverlaessiger Betrags- und Haendlererkennung nicht mehr verarbeitet. Kassenbons und Rechnungen als Bild oder PDF funktionieren weiterhin.</p></div>');
 }
 async function showDocumentImport(file){
  if(!file){showToast('Keine Datei gefunden.');return}
  if(/kontoauszug|kontoumsa(?:e|\u00e4)tze/i.test(file.name))return showStatementOnly(file);
- if(isBankScreenshotFile(file))return showBankScreenshotImport([file]);
+ if(isBankScreenshotFile(file))return showBankScreenshotDisabled();
  return showReceiptImport(file);
 }
 async function showReceiptImport(file){

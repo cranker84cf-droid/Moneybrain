@@ -92,8 +92,10 @@ function transactionNameKey(value){return String(value||'').toLowerCase().replac
 function sameTransactionMerchant(a,b){const left=transactionNameKey(a),right=transactionNameKey(b);return left.length>2&&right.length>2&&(left.includes(right)||right.includes(left))}
 function transactionCandidates(transaction,sourceTest){return state.transactions.filter(item=>sourceTest(item)&&item.type===transaction.type&&Math.abs(Number(item.amount)-Number(transaction.amount))<0.005&&Math.abs(new Date(item.date)-new Date(transaction.date))<=5*matchDay)}
 function importStatementTransactions(items){
- const months=new Set(items.map(item=>String(item.date).slice(0,7)));
- state.transactions=state.transactions.filter(item=>!(item.source==='Kontoauszug'&&months.has(String(item.date).slice(0,7))));
+ const months=new Set(items.map(item=>String(item.date).slice(0,7))),times=items.map(item=>new Date(item.date).getTime()),rangeStart=Math.min(...times)-matchDay,rangeEnd=Math.max(...times)+matchDay;
+ localStorage.setItem('moneybrain.bankReference',JSON.stringify(items.map(item=>({name:item.name,amount:item.amount,type:item.type,date:item.date,valueDate:item.valueDate||item.date}))));
+ let replacedScreenshots=0;
+ state.transactions=state.transactions.filter(item=>{const source=String(item.source||''),time=new Date(item.bankDate||item.date).getTime();if(source.includes('Konto-Screenshot')&&!source.includes('Kassenbon')&&time>=rangeStart&&time<=rangeEnd){replacedScreenshots++;return false}return !(item.source==='Kontoauszug'&&months.has(String(item.date).slice(0,7)))});
  let merged=0,review=0,added=0;
  items.forEach(bank=>{
   const screenshots=state.transactions.filter(item=>String(item.source||'').includes('Konto-Screenshot')&&item.type===bank.type&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&Math.abs(new Date(item.bankDate||item.date)-new Date(bank.date))<=matchDay&&sameTransactionMerchant(item.name,bank.name));

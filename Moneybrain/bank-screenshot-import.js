@@ -14,7 +14,6 @@ window.parseBankScreenshots=async function(files,onProgress=()=>{}){
     const next=[];for(let n=i+1;n<Math.min(lines.length,i+6);n++){if(bankHeaderDate(lines[n])||bankScreenshotAmount(lines[n]))break;next.push(lines[n])}
     const merchantContext=lines.slice(Math.max(0,i-3),i+1),purchase=bankPurchaseDate(next.join(' '));
     const date=purchase||bankDate,merchant=bankScreenshotMerchant(merchantContext,lines[i].slice(0,amount.index),next);
-    correctKnownScreenshotAmount(amount,merchant,bankDate);
     const type=bankScreenshotType(amount,merchant);
     const amountUncertain=suspiciousScreenshotAmount(amount,merchant);
     transactions.push({id:crypto.randomUUID(),name:merchant,amount:amount.value,type,date:date?date.toISOString():'',bankDate:bankDate?bankDate.toISOString():'',method:/PayPal/i.test(merchant)?'PayPal':/Versicherung|HUK/i.test(merchant)?'Girokonto':'Girokarte',status:date&&bankDate&&!amountUncertain?'confirmed':'review',amountUncertain,source:'Konto-Screenshot',note:(bankDate?(type==='income'?'Auf das Konto gebucht: ':'Vom Konto abgebucht: ')+bankDate.toLocaleDateString('de-DE'):'Buchungsdatum fehlt – bitte prüfen')+(amountUncertain?'\nBetrag von der Bilderkennung unsicher – bitte prüfen':'')+'\n'+next.join('\n'),screenshot:{filename:ordered[fileIndex].name,recognizedAt:new Date().toISOString()}})
@@ -22,7 +21,7 @@ window.parseBankScreenshots=async function(files,onProgress=()=>{}){
   }
  }finally{await worker.terminate()}
  if(!transactions.length)throw new Error('Keine Buchungen auf den Screenshots erkannt.');
- const deduplicated=dedupeBankScreenshotTransactions(transactions);return {transactions:deduplicated,missingDates:deduplicated.filter(item=>!item.date||!item.bankDate).length,removedDuplicates:transactions.length-deduplicated.length};
+ const deduplicated=dedupeBankScreenshotTransactions(transactions),reconciled=reconcileBankScreenshotReference(deduplicated);return {transactions:reconciled,missingDates:reconciled.filter(item=>!item.date||!item.bankDate).length,removedDuplicates:transactions.length-deduplicated.length};
 };
 function cleanBankLine(line){return String(line).replace(/[|]/g,' ').replace(/\s+/g,' ').trim()}
 function bankScreenshotFileDate(filename){const match=String(filename).match(/(20\d{2})(\d{2})(\d{2})/);const now=new Date();return match?new Date(Number(match[1]),Number(match[2])-1,Number(match[3]),12):new Date(now.getFullYear(),now.getMonth(),now.getDate(),12)}
@@ -40,7 +39,7 @@ function bankScreenshotMerchant(lines,beforeAmount,details=[]){
 }
 function knownBankMerchant(text){
  if(/^\s*Kartenzahlung\s*$/i.test(text))return 'Kartenzahlung';
- if(/DECATHLON/i.test(text))return 'Decathlon';if(/FRESSNAPF/i.test(text))return 'Fressnapf';if(/PAYPAL/i.test(text))return 'PayPal';if(/HUK.?COBURG/i.test(text))return 'HUK-Coburg';if(/AOK/i.test(text))return 'AOK Niedersachsen';if(/EDEKA/i.test(text))return 'Edeka';if(/AMAZON/i.test(text))return 'Amazon';if(/WIGLO/i.test(text))return 'Wiglo';if(/ADYEN/i.test(text))return 'Adyen';return '';
+ if(/DECATHLON/i.test(text))return 'Decathlon';if(/ZOO.?PARADIES/i.test(text))return 'ZOO-PARADIES KEMPF GMBH';if(/STADT.?ALFELD/i.test(text))return 'Stadt Alfeld Leine';if(/FRESSNAPF/i.test(text))return 'Fressnapf';if(/REWE/i.test(text))return 'Rewe GmbH';if(/NETTO.?MARKEN/i.test(text))return 'Netto Marken-Discount';if(/WIGLO/i.test(text))return 'Wiglo';if(/STRATO/i.test(text))return 'STRATO GmbH';if(/VODAFONE/i.test(text))return 'Vodafone GmbH';if(/KREISWOHNBAU|\bKWG\b/i.test(text))return 'kwg Kreiswohnbaugesellschaft';if(/LANDKREIS.?HAMELN/i.test(text))return 'Landkreis Hameln-Pyrmont';if(/UNIVERSA/i.test(text))return 'uniVersa Lebensversicherung a.G.';if(/MUENCHNER.?VERKEHR|\bMVG\b/i.test(text))return 'MVG';if(/FRESSNAPF/i.test(text))return 'Fressnapf';if(/PAYPAL/i.test(text))return 'PayPal';if(/HUK.?COBURG/i.test(text))return 'HUK-Coburg';if(/AOK/i.test(text))return 'AOK Niedersachsen';if(/EDEKA/i.test(text))return 'Edeka';if(/AMAZON/i.test(text))return 'Amazon';if(/WIGLO/i.test(text))return 'Wiglo';if(/ADYEN/i.test(text))return 'Adyen';return '';
 }
 function dedupeBankScreenshotTransactions(items){
  const map=new Map();
@@ -53,3 +52,22 @@ function dedupeBankScreenshotTransactions(items){
  }
  return [...map.values()];
 }
+
+
+function reconcileBankScreenshotReference(items){
+ let reference=[];try{reference=JSON.parse(localStorage.getItem('moneybrain.bankReference')||'[]')}catch{}
+ if(!Array.isArray(reference)||!reference.length)return items;
+ for(const item of items){
+  const itemDate=new Date(item.bankDate||item.date),generic=/^(PayPal|Kartenzahlung|Adyen|Unbekannte Buchung)$/i.test(item.name),key=bankReferenceNameKey(item.name);
+  let candidates=reference.filter(ref=>ref.type===item.type&&Math.abs(new Date(ref.date)-itemDate)<=86400000);
+  const exact=candidates.filter(ref=>Math.abs(Number(ref.amount)-Number(item.amount))<0.005);
+  if(exact.length===1)candidates=exact;
+  else if(!generic&&key)candidates=candidates.filter(ref=>{const refKey=bankReferenceNameKey(ref.name);return refKey&&(refKey.includes(key)||key.includes(refKey))});
+  if(candidates.length!==1)continue;
+  const ref=candidates[0];
+  item.name=ref.name;item.amount=Number(ref.amount);item.type=ref.type;item.bankDate=ref.date;item.valueDate=ref.valueDate||ref.date;item.status='confirmed';item.amountUncertain=false;
+  item.note=(item.type==='income'?'Auf das Konto gebucht: ':'Vom Konto abgebucht: ')+new Date(ref.date).toLocaleDateString('de-DE')+'\nMit dem importierten Kontoexport abgeglichen';
+ }
+ return items;
+}
+function bankReferenceNameKey(value){return String(value||'').toLowerCase().replace(/gmbh|markt|payments|europe|s\.?c\.?a\.?|niederlassung|deutschland|[^a-z0-9]/g,'')}

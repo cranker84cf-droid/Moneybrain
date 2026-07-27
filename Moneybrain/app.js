@@ -91,13 +91,22 @@ function isGenericBankMerchant(name){return /^(Kartenzahlung|Unbekannte Buchung)
 function transactionNameKey(value){return String(value||'').toLowerCase().replace(/gmbh|markt|marken-discount|filiale|[^a-z0-9]/g,'')}
 function sameTransactionMerchant(a,b){const left=transactionNameKey(a),right=transactionNameKey(b);return left.length>2&&right.length>2&&(left.includes(right)||right.includes(left))}
 function transactionCandidates(transaction,sourceTest){return state.transactions.filter(item=>sourceTest(item)&&item.type===transaction.type&&Math.abs(Number(item.amount)-Number(transaction.amount))<0.005&&Math.abs(new Date(item.date)-new Date(transaction.date))<=5*matchDay)}
+function bankReferenceFromNote(note){const text=String(note||'');return (text.match(/Kundenreferenz\s*([A-Z0-9()+?._-]+)/i)||text.match(/Mandatsreferenz\s*([A-Z0-9()+?._-]+)/i))?.[1]||''}
+function sameBankImportIdentity(a,b){
+ if(a.type!==b.type||Math.abs(Number(a.amount)-Number(b.amount))>=0.005)return false;
+ if(String(a.date).slice(0,10)!==String(b.date).slice(0,10))return false;
+ if(!sameTransactionMerchant(a.name,b.name)&&transactionNameKey(a.name)!==transactionNameKey(b.name))return false;
+ const leftRef=bankReferenceFromNote(a.note),rightRef=bankReferenceFromNote(b.note);return !leftRef||!rightRef||leftRef===rightRef;
+}
 function importStatementTransactions(items){
- const months=new Set(items.map(item=>String(item.date).slice(0,7))),times=items.map(item=>new Date(item.date).getTime()),rangeStart=Math.min(...times)-matchDay,rangeEnd=Math.max(...times)+matchDay;
+ const times=items.map(item=>new Date(item.date).getTime()),rangeStart=Math.min(...times)-matchDay,rangeEnd=Math.max(...times)+matchDay;
  localStorage.setItem('moneybrain.bankReference',JSON.stringify(items.map(item=>({name:item.name,amount:item.amount,type:item.type,date:item.date,valueDate:item.valueDate||item.date}))));
  let replacedScreenshots=0;
- state.transactions=state.transactions.filter(item=>{const source=String(item.source||''),time=new Date(item.bankDate||item.date).getTime();if(source.includes('Konto-Screenshot')&&!source.includes('Kassenbon')&&time>=rangeStart&&time<=rangeEnd){replacedScreenshots++;return false}return !(item.source==='Kontoauszug'&&months.has(String(item.date).slice(0,7)))});
+ state.transactions=state.transactions.filter(item=>{const source=String(item.source||''),time=new Date(item.bankDate||item.date).getTime();if(source.includes('Konto-Screenshot')&&!source.includes('Kassenbon')&&time>=rangeStart&&time<=rangeEnd){replacedScreenshots++;return false}return true});
  let merged=0,review=0,added=0;
  items.forEach(bank=>{
+  const existingStatements=state.transactions.filter(item=>String(item.source||'').includes('Kontoauszug')&&sameBankImportIdentity(item,bank));
+  if(existingStatements.length===1){const existing=existingStatements[0];Object.assign(existing,{name:bank.name,amount:bank.amount,type:bank.type,date:bank.date,valueDate:bank.valueDate||bank.date,method:bank.method,status:'confirmed',note:bank.note});delete existing.matchId;merged++;return}
   const screenshots=state.transactions.filter(item=>String(item.source||'').includes('Konto-Screenshot')&&item.type===bank.type&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&Math.abs(new Date(item.bankDate||item.date)-new Date(bank.date))<=matchDay&&sameTransactionMerchant(item.name,bank.name));
   if(screenshots.length===1){const screenshot=screenshots[0],hasReceipt=String(screenshot.source||'').includes('Kassenbon');Object.assign(screenshot,{bankDate:bank.date,valueDate:bank.valueDate||bank.date,method:bank.method||screenshot.method,status:'confirmed',source:'Kontoauszug + Konto-Screenshot'+(hasReceipt?' + Kassenbon':''),note:bankDateNote(bank.type,bank.date)});delete screenshot.matchId;merged++;return}
   if(screenshots.length>1){bank.status='review';state.transactions.push(bank);review++;added++;return}

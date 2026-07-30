@@ -32,6 +32,7 @@ function receiptMerchant(text,filename){
  const s=text+' '+filename;
  if(/DECATHLON/i.test(s))return 'Decathlon';
  if(/\bOBI\b|obi\.de/i.test(s))return 'OBI';
+ if(/ROSSMANN|rossmann\.de/i.test(s))return 'Rossmann';
  if(/LIDL|Lidl Plus|lidl\.de/i.test(s))return 'Lidl';
  if(/R\s*E\s*W\s*E/i.test(s))return 'Rewe GmbH';
  if(/\*\*\*\s*eBon|NETTO-ONLINE|Netto_Kassenbon/i.test(s))return 'Netto Marken-Discount';
@@ -40,7 +41,7 @@ function receiptMerchant(text,filename){
  return 'Einzelhandel';
 }
 function receiptAmount(text,merchant){
- const finalTotal=[...text.matchAll(/Endsumme(?:\s+in\s+(?:\(cid:\d+\)|EUR|\u20ac))?\s*(\d+[.,]\d{2})/ig)];if(finalTotal.length)return money(finalTotal.at(-1)[1]);
+ const finalTotal=[...text.matchAll(/Endsumme(?:\s+in)?(?:\s+(?:\(cid:\d+\)|EUR|\u20ac))?\s*(\d+[.,]\d{2})/ig)];if(finalTotal.length)return money(finalTotal.at(-1)[1]);
  const patterns=merchant==='Lidl'?[/zu\s+zahlen\s+(\d+[.,]\d{2})/ig]:merchant==='Decathlon'?[/Rechnungsbetrag\s+(\d+[.,]\d{2})/ig,/Gesamt\s+(\d+[.,]\d{2})/ig]:[/SUMME[^\n]*?(\d+[.,]\d{2})/ig,/Gesamtbetrag\s+(\d+[.,]\d{2})/ig];
  for(const pattern of patterns){const found=[...text.matchAll(pattern)];if(found.length)return money(found.at(-1)[1])}
  const paid=[...text.matchAll(/(?:Betrag|Karte|Kartenzahlung|Paypal)\s*(?:EUR|€)?\s*(\d+[.,]\d{2})/ig)];

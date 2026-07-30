@@ -31,6 +31,7 @@ function parseReceiptText(text,filename){
 function receiptMerchant(text,filename){
  const s=text+' '+filename;
  if(/DECATHLON/i.test(s))return 'Decathlon';
+ if(/\bOBI\b|obi\.de/i.test(s))return 'OBI';
  if(/LIDL|Lidl Plus|lidl\.de/i.test(s))return 'Lidl';
  if(/R\s*E\s*W\s*E/i.test(s))return 'Rewe GmbH';
  if(/\*\*\*\s*eBon|NETTO-ONLINE|Netto_Kassenbon/i.test(s))return 'Netto Marken-Discount';
@@ -39,6 +40,7 @@ function receiptMerchant(text,filename){
  return 'Einzelhandel';
 }
 function receiptAmount(text,merchant){
+ const finalTotal=[...text.matchAll(/Endsumme(?:\s+in\s+(?:\(cid:\d+\)|EUR|\u20ac))?\s*(\d+[.,]\d{2})/ig)];if(finalTotal.length)return money(finalTotal.at(-1)[1]);
  const patterns=merchant==='Lidl'?[/zu\s+zahlen\s+(\d+[.,]\d{2})/ig]:merchant==='Decathlon'?[/Rechnungsbetrag\s+(\d+[.,]\d{2})/ig,/Gesamt\s+(\d+[.,]\d{2})/ig]:[/SUMME[^\n]*?(\d+[.,]\d{2})/ig,/Gesamtbetrag\s+(\d+[.,]\d{2})/ig];
  for(const pattern of patterns){const found=[...text.matchAll(pattern)];if(found.length)return money(found.at(-1)[1])}
  const paid=[...text.matchAll(/(?:Betrag|Karte|Kartenzahlung|Paypal)\s*(?:EUR|€)?\s*(\d+[.,]\d{2})/ig)];
@@ -52,5 +54,5 @@ function receiptDate(text,filename){
  for(const p of patterns){const m=text.match(p);if(m){let y=Number(m[3]);if(y<100)y+=2000;return new Date(y,Number(m[2])-1,Number(m[1]),12)}}
  const f=filename.match(/(20\d{2})(\d{2})(\d{2})/);return f?new Date(Number(f[1]),Number(f[2])-1,Number(f[3]),12):null;
 }
-function receiptMethod(text){if(/Paypal/i.test(text))return 'PayPal';if(/Mastercard|Visa|Girocard|EC-Cash|Kartenzahlung|Zahlung\s+MasterCard/i.test(text))return 'Girokarte';if(/\bBar\s+EUR|Barzahlung/i.test(text))return 'Bar';return 'Sonstiges'}
+function receiptMethod(text){if(/Paypal/i.test(text))return 'PayPal';if(/Mastercard|Visa|Girocard|EC-Cash|Kartenzahlung|Zahlung\s+MasterCard/i.test(text))return 'Girokarte';if(/\bBar\s+(?:EUR\s*)?\d+[.,]\d{2}|Barzahlung/i.test(text))return 'Bar';return 'Sonstiges'}
 function money(value){const raw=String(value).replace(/\s/g,'');const comma=raw.lastIndexOf(','),dot=raw.lastIndexOf('.'),separator=Math.max(comma,dot);if(separator<0)return Number(raw.replace(/\D/g,''));const whole=raw.slice(0,separator).replace(/\D/g,''),fraction=raw.slice(separator+1).replace(/\D/g,'').slice(0,2);return Number(whole+'.'+fraction)}

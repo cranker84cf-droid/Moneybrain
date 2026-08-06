@@ -2,18 +2,26 @@ const euro = new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'});
 const monthFmt = new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'});
 const shortDate = new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'short'});
 const now = new Date();
-const seed = [
- {id:'1',name:'Gehalt',amount:2840,type:'income',date:new Date(now.getFullYear(),now.getMonth(),1,9).toISOString(),method:'Girokonto',status:'confirmed',source:'Kontoauszug'},
- {id:'2',name:'REWE Markt',amount:48.72,type:'expense',date:new Date(now.getFullYear(),now.getMonth(),3,18).toISOString(),method:'Girokonto',status:'confirmed',source:'Kassenbon',note:'Lebensmittel'},
- {id:'3',name:'Spotify',amount:10.99,type:'expense',date:new Date(now.getFullYear(),now.getMonth(),5,7).toISOString(),method:'PayPal',status:'confirmed',source:'PayPal'},
- {id:'4',name:'Amazon',amount:36.40,type:'expense',date:new Date(now.getFullYear(),now.getMonth(),7,14).toISOString(),method:'PayPal',status:'review',source:'Screenshot',matchId:'5'},
- {id:'5',name:'PAYPAL *AMAZON',amount:36.40,type:'expense',date:new Date(now.getFullYear(),now.getMonth(),8,8).toISOString(),method:'Girokonto',status:'review',source:'Kontoauszug',matchId:'4'},
- {id:'6',name:'ALDI Süd',amount:27.83,type:'expense',date:new Date(now.getFullYear(),now.getMonth()-1,20,17).toISOString(),method:'Bar',status:'confirmed',source:'Kassenbon'}
-];
 let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),transactions:load()};
 
-function load(){try{return JSON.parse(localStorage.getItem('moneybrain.transactions'))||seed}catch{return seed}}
-function save(){localStorage.setItem('moneybrain.transactions',JSON.stringify(state.transactions))}
+const legacySeedIds=new Set(['1','2','3','4','5','6']);
+function cleanStoredTransactions(items){return Array.isArray(items)?items.filter(item=>!legacySeedIds.has(String(item?.id))):[]}
+function load(){try{return cleanStoredTransactions(JSON.parse(localStorage.getItem('moneybrain.transactions')))}catch{return []}}
+function save(){
+ const snapshot=cleanStoredTransactions(state.transactions);state.transactions=snapshot;
+ try{localStorage.setItem('moneybrain.transactions',JSON.stringify(snapshot))}catch{}
+ backupTransactions(snapshot);
+}
+function openMoneybrainDataDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open('moneybrain-data',1);request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('state'))request.result.createObjectStore('state',{keyPath:'key'})};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
+async function backupTransactions(items){try{const db=await openMoneybrainDataDb();await new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite');tx.objectStore('state').put({key:'transactions',items:cleanStoredTransactions(items),updatedAt:new Date().toISOString()});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch{}}
+async function readTransactionBackup(){try{const db=await openMoneybrainDataDb(),value=await new Promise((resolve,reject)=>{const tx=db.transaction('state','readonly'),request=tx.objectStore('state').get('transactions');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)});db.close();return cleanStoredTransactions(value?.items)}catch{return []}}
+async function restorePersistentTransactions(){
+ try{await navigator.storage?.persist?.()}catch{}
+ const backup=await readTransactionBackup();
+ if(!state.transactions.length&&backup.length){state.transactions=backup;try{localStorage.setItem('moneybrain.transactions',JSON.stringify(backup))}catch{}render();showToast('Gespeicherte Buchungen wiederhergestellt')}
+ else if(state.transactions.length)backupTransactions(state.transactions);
+}
+
 const app=document.querySelector('#app'),sheet=document.querySelector('#sheet'),content=document.querySelector('#sheetContent');
 const inMonth=(t,d=now)=>{const x=new Date(t.date);return x.getMonth()===d.getMonth()&&x.getFullYear()===d.getFullYear()};
 const txs=(date=now)=>state.transactions.filter(t=>inMonth(t,date)).sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -61,6 +69,7 @@ function capitalize(s){return s.charAt(0).toUpperCase()+s.slice(1)}
 function escapeHtml(s=''){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
 render();
+restorePersistentTransactions();
 
 handleSharedLaunch();
 async function handleSharedLaunch(){

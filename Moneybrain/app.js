@@ -8,6 +8,7 @@ const legacySeedIds=new Set(['1','2','3','4','5','6']);
 function cleanStoredTransactions(items){return Array.isArray(items)?items.filter(item=>!legacySeedIds.has(String(item?.id))):[]}
 function load(){try{return cleanStoredTransactions(JSON.parse(localStorage.getItem('moneybrain.transactions')))}catch{return []}}
 function save(){
+ state.transactions=reconcileAllTransactions(state.transactions);
  const snapshot=cleanStoredTransactions(state.transactions);state.transactions=snapshot;
  try{localStorage.setItem('moneybrain.transactions',JSON.stringify(snapshot))}catch{}
  backupTransactions(snapshot);
@@ -56,7 +57,7 @@ document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>{state.
 document.querySelector('#fileInput').onchange=async e=>{
  const files=[...e.target.files];if(!files.length)return;
  if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}
- else if(files.length>1){isBankScreenshotBatch(files)?showBankScreenshotDisabled():showReceiptBatchImport(files)}
+ else if(files.length>1){files.every(isPayPalEvidenceFile)?showPayPalBatchImport(files):(isBankScreenshotBatch(files)?showBankScreenshotDisabled():showReceiptBatchImport(files))}
  else{open(`<div class="sheet-title"><h2>Import pr?fen</h2><button class="close">&times;</button></div><div class="import-box"><strong>1 Datei bereit</strong><p>${escapeHtml(files[0].name)}</p></div><button class="primary" id="createFromFile">Datei pr?fen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}
  e.target.value='';
 };
@@ -99,6 +100,24 @@ const matchDay=86400000;
 function isGenericBankMerchant(name){return /^(Kartenzahlung|Unbekannte Buchung)$/i.test(String(name||''))}
 function transactionNameKey(value){return String(value||'').toLowerCase().replace(/gmbh|markt|marken-discount|filiale|[^a-z0-9]/g,'')}
 function sameTransactionMerchant(a,b){const left=transactionNameKey(a),right=transactionNameKey(b);return left.length>2&&right.length>2&&(left.includes(right)||right.includes(left))}
+function sourceParts(value){return String(value||'').split(/\s*\+\s*/).filter(Boolean)}
+function combinedSource(a,b){return [...new Set([...sourceParts(a),...sourceParts(b)])].join(' + ')}
+function sourceFamily(value){const text=String(value||'');if(/Kontoauszug|CSV/i.test(text))return 'bank';if(/PayPal/i.test(text))return 'paypal';if(/Kassenbon/i.test(text))return 'receipt';if(/Manuell/i.test(text))return 'manual';return text.toLowerCase()}
+function reconcileAllTransactions(items){
+ const result=[];
+ for(const original of cleanStoredTransactions(items)){
+  const item={...original},candidates=result.filter(existing=>existing.type===item.type&&Math.abs(Number(existing.amount)-Number(item.amount))<0.005&&Math.abs(new Date(existing.date)-new Date(item.date))<=5*matchDay&&sourceFamily(existing.source)!==sourceFamily(item.source));
+  const strong=candidates.filter(existing=>sameTransactionMerchant(existing.name,item.name));
+  if(strong.length===1){
+   const existing=strong[0],bank=[existing,item].find(value=>sourceFamily(value.source)==='bank'),paypal=[existing,item].find(value=>sourceFamily(value.source)==='paypal'),receipt=[existing,item].find(value=>sourceFamily(value.source)==='receipt');
+   const preferred=receipt||paypal||existing;
+   Object.assign(existing,preferred,{id:existing.id,source:combinedSource(existing.source,item.source),status:'confirmed',method:paypal?'PayPal':(preferred.method||existing.method),bankDate:bank?(bank.bankDate||bank.date):(existing.bankDate||item.bankDate),note:bank?bankDateNote(item.type,bank.bankDate||bank.date):(preferred.note||existing.note)});delete existing.matchId;continue;
+  }
+  if(candidates.length===1){item.status='review';item.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=item.id}
+  result.push(item);
+ }
+ return result;
+}
 function transactionCandidates(transaction,sourceTest){return state.transactions.filter(item=>sourceTest(item)&&item.type===transaction.type&&Math.abs(Number(item.amount)-Number(transaction.amount))<0.005&&Math.abs(new Date(item.date)-new Date(transaction.date))<=5*matchDay)}
 function bankReferenceFromNote(note){const text=String(note||'');return (text.match(/Kundenreferenz\s*([A-Z0-9()+?._-]+)/i)||text.match(/Mandatsreferenz\s*([A-Z0-9()+?._-]+)/i))?.[1]||''}
 function sameBankImportIdentity(a,b){
@@ -130,6 +149,7 @@ function importStatementTransactions(items){
 }
 
 function isBankScreenshotFile(file){return /deutsche.?bank|konto.?screenshot|konto.?umsatz/i.test(String(file?.name||''))}
+function isPayPalEvidenceFile(file){return /paypal/i.test(String(file?.name||''))&&String(file?.type||'').startsWith('image/')}
 function isBankScreenshotBatch(files){return files.length>0&&files.every(file=>file.type.startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(file.name))&&files.some(isBankScreenshotFile)}
 function showBankScreenshotDisabled(){
  open('<div class="sheet-title"><h2>Bank-Screenshots deaktiviert</h2><button class="close">&times;</button></div><div class="review-box"><strong>Bitte Kontoauszug oder Kontoumsaetze als PDF verwenden</strong><p>Bank-Screenshots werden wegen unzuverlaessiger Betrags- und Haendlererkennung nicht mehr verarbeitet. Kassenbons und Rechnungen als Bild oder PDF funktionieren weiterhin.</p></div>');
@@ -138,7 +158,22 @@ async function showDocumentImport(file){
  if(!file){showToast('Keine Datei gefunden.');return}
  if(/kontoauszug|kontoumsa(?:e|\u00e4)tze/i.test(file.name))return showStatementOnly(file);
  if(isBankScreenshotFile(file))return showBankScreenshotDisabled();
+ if(isPayPalEvidenceFile(file))return showPayPalImport(file);
  return showReceiptImport(file);
+}
+async function showPayPalImport(file){
+ try{
+  const transactions=await window.parsePayPalActivity(file,message=>{const button=content.querySelector('#reviewShared,#createFromFile');if(button)button.textContent=message});
+  const rows=transactions.map(item=>'<div class="detail-row"><span>'+escapeHtml(item.name)+'<br><small>'+new Date(item.date).toLocaleDateString('de-DE')+' · PayPal</small></span><strong>'+(item.type==='income'?'+ ':'− ')+euro.format(item.amount)+'</strong></div>').join('');
+  open('<div class="sheet-title"><h2>PayPal erkannt</h2><button class="close">✕</button></div><p class="subtitle">'+transactions.length+' PayPal-Buchung(en) wurden erkannt und werden mit allen vorhandenen Buchungen abgeglichen.</p><div class="detail-list">'+rows+'</div><button class="primary" id="importPayPal">Alle '+transactions.length+' Buchungen übernehmen</button>');
+  content.querySelector('#importPayPal').onclick=()=>{state.transactions.push(...transactions);save();sheet.close();state.route='transactions';state.filter='all';render();showToast('PayPal-Buchungen geprüft und übernommen')};
+ }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>PayPal-Nachweis nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
+}
+async function showPayPalBatchImport(files){
+ const transactions=[];for(const file of files){try{transactions.push(...await window.parsePayPalActivity(file,()=>{}))}catch{}}
+ if(!transactions.length){showToast('Keine PayPal-Buchungen erkannt');return}
+ open('<div class="sheet-title"><h2>PayPal erkannt</h2><button class="close">✕</button></div><p class="subtitle">'+transactions.length+' Buchungen aus '+files.length+' Nachweisen.</p><button class="primary" id="importPayPalBatch">Prüfen und übernehmen</button>');
+ content.querySelector('#importPayPalBatch').onclick=()=>{state.transactions.push(...transactions);save();sheet.close();render();showToast('PayPal-Buchungen abgeglichen')};
 }
 async function showReceiptImport(file){
  try{

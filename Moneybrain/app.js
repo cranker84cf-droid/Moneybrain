@@ -5,7 +5,8 @@ const now = new Date();
 let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),transactions:load()};
 
 const legacySeedIds=new Set(['1','2','3','4','5','6']);
-function cleanStoredTransactions(items){return Array.isArray(items)?items.filter(item=>!legacySeedIds.has(String(item?.id))):[]}
+function cleanStoredTransactions(items){return Array.isArray(items)?items.filter(item=>!legacySeedIds.has(String(item?.id))).map(item=>String(item?.source||'').includes('PayPal-Nachweis')?{...item,name:cleanStoredPayPalName(item.name)}:item):[]}
+function cleanStoredPayPalName(value){let name=String(value||'PayPal').replace(/^[=+\-−–|:;.,_\s]+/,'').replace(/^MT\s+(?=Monika)/i,'').trim();if(/z{1,2}[o0]{2}\s*sky\s*24/i.test(name))return 'zooSky24';return name}
 function load(){try{return cleanStoredTransactions(JSON.parse(localStorage.getItem('moneybrain.transactions')))}catch{return []}}
 function save(){
  state.transactions=reconcileAllTransactions(state.transactions);
@@ -166,14 +167,21 @@ async function showPayPalImport(file){
   const transactions=await window.parsePayPalActivity(file,message=>{const button=content.querySelector('#reviewShared,#createFromFile');if(button)button.textContent=message});
   const rows=transactions.map(item=>'<div class="detail-row"><span>'+escapeHtml(item.name)+'<br><small>'+new Date(item.date).toLocaleDateString('de-DE')+' · PayPal</small></span><strong>'+(item.type==='income'?'+ ':'− ')+euro.format(item.amount)+'</strong></div>').join('');
   open('<div class="sheet-title"><h2>PayPal erkannt</h2><button class="close">✕</button></div><p class="subtitle">'+transactions.length+' PayPal-Buchung(en) wurden erkannt und werden mit allen vorhandenen Buchungen abgeglichen.</p><div class="detail-list">'+rows+'</div><button class="primary" id="importPayPal">Alle '+transactions.length+' Buchungen übernehmen</button>');
-  content.querySelector('#importPayPal').onclick=()=>{state.transactions.push(...transactions);save();sheet.close();state.route='transactions';state.filter='all';render();showToast('PayPal-Buchungen geprüft und übernommen')};
+  content.querySelector('#importPayPal').onclick=()=>{importPayPalTransactions(transactions);save();sheet.close();state.route='transactions';state.filter='all';render();showToast('PayPal-Buchungen geprüft und übernommen')};
  }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>PayPal-Nachweis nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
 }
 async function showPayPalBatchImport(files){
  const transactions=[];for(const file of files){try{transactions.push(...await window.parsePayPalActivity(file,()=>{}))}catch{}}
  if(!transactions.length){showToast('Keine PayPal-Buchungen erkannt');return}
  open('<div class="sheet-title"><h2>PayPal erkannt</h2><button class="close">✕</button></div><p class="subtitle">'+transactions.length+' Buchungen aus '+files.length+' Nachweisen.</p><button class="primary" id="importPayPalBatch">Prüfen und übernehmen</button>');
- content.querySelector('#importPayPalBatch').onclick=()=>{state.transactions.push(...transactions);save();sheet.close();render();showToast('PayPal-Buchungen abgeglichen')};
+ content.querySelector('#importPayPalBatch').onclick=()=>{importPayPalTransactions(transactions);save();sheet.close();render();showToast('PayPal-Buchungen abgeglichen')};
+}
+function importPayPalTransactions(transactions){
+ for(const incoming of transactions){
+  const existing=state.transactions.filter(item=>String(item.source||'').includes('PayPal-Nachweis')&&item.type===incoming.type&&Math.abs(Number(item.amount)-Number(incoming.amount))<0.005&&sameTransactionMerchant(cleanStoredPayPalName(item.name),incoming.name));
+  if(existing.length===1){Object.assign(existing[0],incoming,{id:existing[0].id});continue}
+  state.transactions.push(incoming);
+ }
 }
 async function showReceiptImport(file){
  try{

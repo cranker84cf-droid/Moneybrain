@@ -4,13 +4,21 @@ window.parseRetailReceipt=async function(file,onProgress=()=>{}){
   text=await receiptPdfText(file);
   if(text.replace(/\s/g,'').length<80)throw new Error('Diese PDF enthält keinen lesbaren Belegtext.');
  }else if(file.type.startsWith('image/')){
-  if(!window.Tesseract)throw new Error('Die Bilderkennung ist nicht geladen.');
+ if(!window.Tesseract)throw new Error('Die Bilderkennung ist nicht geladen.');
   onProgress('Bilderkennung wird vorbereitet …');
   const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,logger:m=>{if(m.status==='recognizing text')onProgress('Beleg wird gelesen: '+Math.round((m.progress||0)*100)+' %')}});
-  try{const result=await worker.recognize(file);text=result.data.text||''}finally{await worker.terminate()}
+  try{const prepared=await prepareReceiptPhoto(file,onProgress),result=await worker.recognize(prepared);text=result.data.text||''}finally{await worker.terminate()}
  }else throw new Error('Dateityp nicht unterstützt.');
  return parseReceiptText(text,file.name);
 };
+async function prepareReceiptPhoto(file,onProgress){
+ onProgress('Kamerafoto wird optimiert …');
+ const bitmap=await createImageBitmap(file),maxPixels=4200000,scale=Math.min(1,Math.sqrt(maxPixels/(bitmap.width*bitmap.height))),width=Math.max(1,Math.round(bitmap.width*scale)),height=Math.max(1,Math.round(bitmap.height*scale)),canvas=document.createElement('canvas');
+ canvas.width=width;canvas.height=height;const context=canvas.getContext('2d',{willReadFrequently:true});context.drawImage(bitmap,0,0,width,height);bitmap.close?.();
+ const image=context.getImageData(0,0,width,height),data=image.data;
+ for(let index=0;index<data.length;index+=4){const gray=.299*data[index]+.587*data[index+1]+.114*data[index+2],boosted=Math.max(0,Math.min(255,(gray-128)*1.38+142));data[index]=data[index+1]=data[index+2]=boosted}
+ context.putImageData(image,0,0);return canvas;
+}
 async function receiptPdfText(file){
  const pdfjs=await import('./vendor/pdf.min.mjs');
  pdfjs.GlobalWorkerOptions.workerSrc=new URL('./vendor/pdf.worker.min.mjs',location.href).href;
@@ -32,6 +40,8 @@ function receiptMerchant(text,filename){
  const s=text+' '+filename;
  if(/DECATHLON/i.test(s))return 'Decathlon';
  if(/\bOBI\b|obi\.de/i.test(s))return 'OBI';
+ if(/ZOOPARADIES|Zoo.?Paradies\s+Kempf/i.test(s))return 'Zooparadies Kempf GmbH';
+ if(/JAWOLL|Wiglo\s+Wunderland/i.test(s))return 'Jawoll';
  if(/ROSSMANN|rossmann\.de/i.test(s))return 'Rossmann';
  if(/LIDL|Lidl Plus|lidl\.de/i.test(s))return 'Lidl';
  if(/R\s*E\s*W\s*E/i.test(s))return 'Rewe GmbH';
@@ -42,7 +52,7 @@ function receiptMerchant(text,filename){
 }
 function receiptAmount(text,merchant){
  const finalTotal=[...text.matchAll(/Endsumme(?:\s+in)?(?:\s+(?:\(cid:\d+\)|EUR|\u20ac))?\s*(\d+[.,]\d{2})/ig)];if(finalTotal.length)return money(finalTotal.at(-1)[1]);
- const patterns=merchant==='Lidl'?[/zu\s+zahlen\s+(\d+[.,]\d{2})/ig]:merchant==='Decathlon'?[/Rechnungsbetrag\s+(\d+[.,]\d{2})/ig,/Gesamt\s+(\d+[.,]\d{2})/ig]:[/SUMME[^\n]*?(\d+[.,]\d{2})/ig,/Gesamtbetrag\s+(\d+[.,]\d{2})/ig];
+ const patterns=merchant==='Lidl'?[/zu\s+zahlen\s+(\d+[.,]\d{2})/ig]:merchant==='Decathlon'?[/Rechnungsbetrag\s+(\d+[.,]\d{2})/ig,/Gesamt\s+(\d+[.,]\d{2})/ig]:[/ZU\s*ZAHLEN\s+(\d+[.,]\d{2})/ig,/SUMME[^\n]*?(\d+[.,]\d{2})/ig,/Gesamtbetrag\s+(\d+[.,]\d{2})/ig];
  for(const pattern of patterns){const found=[...text.matchAll(pattern)];if(found.length)return money(found.at(-1)[1])}
  const paid=[...text.matchAll(/(?:Betrag|Karte|Kartenzahlung|Paypal)\s*(?:EUR|€)?\s*(\d+[.,]\d{2})/ig)];
  if(!paid.length)return 0;
@@ -55,5 +65,5 @@ function receiptDate(text,filename){
  for(const p of patterns){const m=text.match(p);if(m){let y=Number(m[3]);if(y<100)y+=2000;return new Date(y,Number(m[2])-1,Number(m[1]),12)}}
  const f=filename.match(/(20\d{2})(\d{2})(\d{2})/);return f?new Date(Number(f[1]),Number(f[2])-1,Number(f[3]),12):null;
 }
-function receiptMethod(text){if(/Paypal/i.test(text))return 'PayPal';if(/Mastercard|Visa|Girocard|EC-Cash|Kartenzahlung|Zahlung\s+MasterCard/i.test(text))return 'Girokarte';if(/\bBar\s+(?:EUR\s*)?\d+[.,]\d{2}|Barzahlung/i.test(text))return 'Bar';return 'Sonstiges'}
+function receiptMethod(text){if(/Paypal/i.test(text))return 'PayPal';if(/Mastercard|Visa|Girocard|EC-Cash|Kartenzahlung|Zahlung\s+MasterCard/i.test(text))return 'Girokarte';if(/\bBar\s+(?:EUR\s*)?\d+[.,]\d{2}|Barzahlung|R(?:ü|u|ue)ckgeld/i.test(text))return 'Bar';return 'Sonstiges'}
 function money(value){const raw=String(value).replace(/\s/g,'');const comma=raw.lastIndexOf(','),dot=raw.lastIndexOf('.'),separator=Math.max(comma,dot);if(separator<0)return Number(raw.replace(/\D/g,''));const whole=raw.slice(0,separator).replace(/\D/g,''),fraction=raw.slice(separator+1).replace(/\D/g,'').slice(0,2);return Number(whole+'.'+fraction)}

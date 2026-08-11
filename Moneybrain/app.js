@@ -2,12 +2,11 @@ const euro = new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'});
 const monthFmt = new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'});
 const shortDate = new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'short'});
 const now = new Date();
-let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),transactions:load()};
-
 const legacySeedIds=new Set(['1','2','3','4','5','6']);
 function cleanStoredTransactions(items){return Array.isArray(items)?items.filter(item=>!legacySeedIds.has(String(item?.id))).map(item=>String(item?.source||'').includes('PayPal-Nachweis')?{...item,name:cleanStoredPayPalName(item.name)}:item):[]}
 function cleanStoredPayPalName(value){let name=String(value||'PayPal').replace(/^[=+\-−–|:;.,_\s]+/,'').replace(/^MT\s+(?=Monika)/i,'').trim();if(/z{1,2}[o0]{2}\s*sky\s*24/i.test(name))return 'zooSky24';return name}
 function load(){try{return cleanStoredTransactions(JSON.parse(localStorage.getItem('moneybrain.transactions')))}catch{return []}}
+let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),transactions:load()};
 function save(){
  state.transactions=reconcileAllTransactions(state.transactions);
  const snapshot=cleanStoredTransactions(state.transactions);state.transactions=snapshot;
@@ -20,8 +19,9 @@ async function readTransactionBackup(){try{const db=await openMoneybrainDataDb()
 async function restorePersistentTransactions(){
  try{await navigator.storage?.persist?.()}catch{}
  const backup=await readTransactionBackup();
- if(!state.transactions.length&&backup.length){state.transactions=backup;try{localStorage.setItem('moneybrain.transactions',JSON.stringify(backup))}catch{}render();showToast('Gespeicherte Buchungen wiederhergestellt')}
- else if(state.transactions.length)backupTransactions(state.transactions);
+ const byId=new Map();for(const item of backup)byId.set(String(item.id),item);for(const item of state.transactions)byId.set(String(item.id),item);
+ const restored=cleanStoredTransactions([...byId.values()]);
+ if(restored.length){const recovered=restored.length>state.transactions.length;state.transactions=restored;try{localStorage.setItem('moneybrain.transactions',JSON.stringify(restored))}catch{}backupTransactions(restored);if(recovered){render();showToast('Gespeicherte Buchungen wiederhergestellt')}}
 }
 
 const app=document.querySelector('#app'),sheet=document.querySelector('#sheet'),content=document.querySelector('#sheetContent');

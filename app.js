@@ -1,0 +1,239 @@
+function loadSettings(){try{return {...{currency:'EUR',defaultMethod:'Girokonto'},...JSON.parse(localStorage.getItem('moneybrain.settings'))}}catch{return {currency:'EUR',defaultMethod:'Girokonto'}}}
+let settings=loadSettings();
+let euro = new Intl.NumberFormat('de-DE',{style:'currency',currency:settings.currency});
+const monthFmt = new Intl.DateTimeFormat('de-DE',{month:'long',year:'numeric'});
+const shortDate = new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'short'});
+const now = new Date();
+const legacySeedIds=new Set(['1','2','3','4','5','6']);
+function cleanStoredTransactions(items){return Array.isArray(items)?items.filter(item=>!legacySeedIds.has(String(item?.id))).map(item=>String(item?.source||'').includes('PayPal-Nachweis')?{...item,name:cleanStoredPayPalName(item.name)}:item):[]}
+function cleanStoredPayPalName(value){let name=String(value||'PayPal').replace(/^[=+\-−–|:;.,_\s]+/,'').replace(/^MT\s+(?=Monika)/i,'').trim();if(/z{1,2}[o0]{2}\s*sky\s*24/i.test(name))return 'zooSky24';return name}
+function load(){try{return cleanStoredTransactions(JSON.parse(localStorage.getItem('moneybrain.transactions')))}catch{return []}}
+let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),statsYear:new Date().getFullYear(),transactions:load()};
+function save(){
+ state.transactions=reconcileAllTransactions(state.transactions);
+ const snapshot=cleanStoredTransactions(state.transactions);state.transactions=snapshot;
+ localStorage.setItem('moneybrain.localUpdatedAt',new Date().toISOString());
+ try{localStorage.setItem('moneybrain.transactions',JSON.stringify(snapshot))}catch{}
+ backupTransactions(snapshot);
+ window.MoneybrainCloud?.queueUpload(snapshot);
+}
+function openMoneybrainDataDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open('moneybrain-data',1);request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('state'))request.result.createObjectStore('state',{keyPath:'key'})};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
+async function backupTransactions(items){try{const db=await openMoneybrainDataDb();await new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite');tx.objectStore('state').put({key:'transactions',items:cleanStoredTransactions(items),updatedAt:new Date().toISOString()});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch{}}
+async function readTransactionBackup(){try{const db=await openMoneybrainDataDb(),value=await new Promise((resolve,reject)=>{const tx=db.transaction('state','readonly'),request=tx.objectStore('state').get('transactions');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)});db.close();return cleanStoredTransactions(value?.items)}catch{return []}}
+async function restorePersistentTransactions(){
+ try{await navigator.storage?.persist?.()}catch{}
+ const backup=await readTransactionBackup();
+ const byId=new Map();for(const item of backup)byId.set(String(item.id),item);for(const item of state.transactions)byId.set(String(item.id),item);
+ const restored=cleanStoredTransactions([...byId.values()]);
+ if(restored.length){const recovered=restored.length>state.transactions.length;state.transactions=restored;try{localStorage.setItem('moneybrain.transactions',JSON.stringify(restored))}catch{}backupTransactions(restored);if(recovered){render();showToast('Gespeicherte Buchungen wiederhergestellt')}}
+}
+
+const app=document.querySelector('#app'),sheet=document.querySelector('#sheet'),content=document.querySelector('#sheetContent');
+const inMonth=(t,d=now)=>{const x=new Date(t.date);return x.getMonth()===d.getMonth()&&x.getFullYear()===d.getFullYear()};
+const txs=(date=now)=>state.transactions.filter(t=>inMonth(t,date)).sort((a,b)=>new Date(b.date)-new Date(a.date));
+const total=(items,type)=>items.filter(x=>x.type===type&&!x.amountUncertain).reduce((s,x)=>s+Number(x.amount),0);
+function monthToDateComparison(type){
+ const day=now.getDate(),previous=new Date(now.getFullYear(),now.getMonth()-1,1),lastPreviousDay=new Date(previous.getFullYear(),previous.getMonth()+1,0).getDate(),through=Math.min(day,lastPreviousDay);
+ const previousItems=state.transactions.filter(t=>{const d=new Date(t.date);return d.getFullYear()===previous.getFullYear()&&d.getMonth()===previous.getMonth()&&d.getDate()<=through});
+ const difference=total(txs(),type)-total(previousItems,type),sign=difference>0?'+':difference<0?'−':'±',tone=type==='income'?(difference>=0?'good':'bad'):(difference<=0?'good':'bad');
+ const month=new Intl.DateTimeFormat('de-DE',{month:'long'}).format(previous);
+ return `<small class="comparison ${tone}">${sign}${euro.format(Math.abs(difference))} · 1.–${through}. ${month}</small>`;
+}
+function render(){document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.route===state.route));if(state.route==='home')home();if(state.route==='transactions')transactions();if(state.route==='statistics')statistics();if(state.route==='archive')archive()}
+function home(){const m=txs(),inc=total(m,'income'),exp=total(m,'expense');app.innerHTML=`
+ <section class="hero"><h1><span class="hero-name">moneybrain</span><span class="hero-tagline">Deine Finanzen.<br>Alles im Blick.</span></h1></section>
+ <div class="month-row"><h2>${capitalize(monthFmt.format(now))}</h2><span class="month-chip">Heute, ${now.getDate()}.</span></div>
+ <div class="balance-grid">
+  <button class="balance-card income" data-open-type="income"><span class="card-icon">↙</span><span class="card-label">Einnahmen</span><span class="amount">${euro.format(inc)}</span>${monthToDateComparison('income')}</button>
+  <button class="balance-card expense" data-open-type="expense"><span class="card-icon">↗</span><span class="card-label">Ausgaben</span><span class="amount">${euro.format(exp)}</span>${monthToDateComparison('expense')}</button>
+ </div>
+ <button class="primary" id="newTx"><span>＋</span> Neue Buchung</button>
+ <div class="section-title"><h2>Letzte Buchungen</h2><button class="link-button" data-go="transactions">Alle ansehen</button></div>
+ ${list(m.slice(0,4))}`;bindCommon();document.querySelector('#newTx').onclick=openNew;document.querySelectorAll('[data-open-type]').forEach(b=>b.onclick=()=>{state.route='transactions';state.filter=b.dataset.openType;render()})}
+function transactions(){let m=txs();if(state.filter!=='all')m=m.filter(x=>x.type===state.filter);app.innerHTML=`<div class="page-head"><div><span class="eyebrow">Aktueller Monat</span><h1>Buchungen</h1><p class="subtitle">${m.length} Transaktionen</p></div><button class="icon-button" id="addSmall">＋</button></div>
+ <div class="filter-row">${[['all','Alle'],['income','Einnahmen'],['expense','Ausgaben'],['review','Zu prüfen']].map(([v,l])=>`<button class="filter ${state.filter===v?'active':''}" data-filter="${v}">${l}</button>`).join('')}</div>${list(m)}`;document.querySelector('#addSmall').onclick=openNew;document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{state.filter=b.dataset.filter;if(state.filter==='review'){m=txs().filter(x=>x.status==='review');app.querySelector('.transaction-list')?.remove();app.insertAdjacentHTML('beforeend',list(m))}else render();bindTransactions()});bindTransactions()}
+function archive(){const d=state.archiveDate;const year=d.getFullYear(),allYear=state.transactions.filter(t=>new Date(t.date).getFullYear()===year).sort((a,b)=>new Date(b.date)-new Date(a.date));const shown=state.archiveMode==='year'?allYear:txs(d);app.innerHTML=`<div class="page-head"><div><span class="eyebrow">Gespeicherte Daten</span><h1>Archiv</h1><p class="subtitle">Monate und Jahre vergleichen</p></div></div>
+ <div class="filter-row"><button class="filter ${state.archiveMode==='month'?'active':''}" data-mode="month">Monat</button><button class="filter ${state.archiveMode==='year'?'active':''}" data-mode="year">Ganzes Jahr</button></div>
+ <div class="month-row"><button class="month-chip" data-step="-1">‹</button><h2>${state.archiveMode==='year'?year:capitalize(monthFmt.format(d))}</h2><button class="month-chip" data-step="1">›</button></div>
+ <div class="year-summary"><span class="eyebrow">${state.archiveMode==='year'?'Jahressumme':'Monatssumme'}</span><div class="year-summary-grid"><div><small>Einnahmen</small><strong>${euro.format(total(shown,'income'))}</strong></div><div><small>Ausgaben</small><strong>${euro.format(total(shown,'expense'))}</strong></div></div></div>${list(shown)}`;document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{state.archiveMode=b.dataset.mode;render()});document.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{const step=Number(b.dataset.step);state.archiveDate=state.archiveMode==='year'?new Date(year+step,0,1):new Date(year,d.getMonth()+step,1);render()});bindTransactions()}
+function list(items){if(!items.length)return `<div class="empty">Noch keine Buchungen vorhanden.</div>`;return `<div class="transaction-list">${items.map(t=>`<button class="transaction ${t.status==='review'?'needs-review':''}" data-id="${t.id}"><span class="tx-icon">${initials(t.name)}</span><span class="tx-main"><strong>${escapeHtml(t.name)}${t.status==='review'?'<i class="warning">!</i>':''}</strong><small>${formatTransactionDate(t.date)} · ${escapeHtml(t.method)}</small></span><span class="tx-value ${t.type==='income'?'in':''}">${t.type==='income'?'+':'−'} ${euro.format(t.amount)}</span></button>`).join('')}</div>`}
+function statistics(){const year=state.statsYear,months=Array.from({length:12},(_,month)=>{const items=state.transactions.filter(t=>{const d=new Date(t.date);return d.getFullYear()===year&&d.getMonth()===month});return {month,inc:total(items,'income'),exp:total(items,'expense')}}),max=Math.max(1,...months.flatMap(m=>[m.inc,m.exp])),yearItems=state.transactions.filter(t=>new Date(t.date).getFullYear()===year),inc=total(yearItems,'income'),exp=total(yearItems,'expense');app.innerHTML=`<div class="page-head"><div><span class="eyebrow">Dein Jahr auf einen Blick</span><h1>Statistik</h1><p class="subtitle">Einnahmen und Ausgaben nach Monaten</p></div></div><div class="month-row stats-year"><button class="month-chip" data-year-step="-1">‹</button><h2>${year}</h2><button class="month-chip" data-year-step="1">›</button></div><div class="year-summary"><span class="eyebrow">Jahresübersicht</span><div class="year-summary-grid"><div><small>Einnahmen</small><strong>${euro.format(inc)}</strong></div><div><small>Ausgaben</small><strong>${euro.format(exp)}</strong></div><div><small>Differenz</small><strong class="${inc-exp>=0?'positive':'negative'}">${inc-exp>=0?'+':''}${euro.format(inc-exp)}</strong></div><div><small>Buchungen</small><strong>${yearItems.length}</strong></div></div></div><div class="stat-legend"><span><i class="legend-income"></i>Einnahmen</span><span><i class="legend-expense"></i>Ausgaben</span></div><div class="month-stat-list">${months.map(m=>`<button class="month-stat" data-stat-month="${m.month}"><strong>${new Intl.DateTimeFormat('de-DE',{month:'short'}).format(new Date(year,m.month,1))}</strong><span class="stat-bars"><i class="stat-bar income-bar" style="width:${m.inc/max*100}%"></i><i class="stat-bar expense-bar" style="width:${m.exp/max*100}%"></i></span><span class="stat-values"><small>+ ${euro.format(m.inc)}</small><small>− ${euro.format(m.exp)}</small></span></button>`).join('')}</div>`;document.querySelectorAll('[data-year-step]').forEach(b=>b.onclick=()=>{state.statsYear+=Number(b.dataset.yearStep);render()});document.querySelectorAll('[data-stat-month]').forEach(b=>b.onclick=()=>{state.archiveDate=new Date(year,Number(b.dataset.statMonth),1);state.archiveMode='month';state.route='archive';render()})}
+function bindCommon(){document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{state.route=b.dataset.go;render()});bindTransactions()}
+function bindTransactions(){document.querySelectorAll('.transaction').forEach(b=>b.onclick=()=>detail(b.dataset.id))}
+function openNew(){open(`<div class="sheet-title"><h2>Neue Buchung</h2><button class="close">✕</button></div><p class="subtitle">Wie möchtest du sie hinzufügen?</p><div class="action-grid"><button class="action-card" id="manual"><span>✎</span><strong>Manuell</strong><small>Daten selbst eintragen</small></button><button class="action-card" id="upload"><span>↑</span><strong>Datei importieren</strong><small>PDF, CSV oder Bild</small></button><button class="action-card" id="camera"><span>◎</span><strong>Beleg scannen</strong><small>Foto aufnehmen</small></button><button class="action-card" id="shared"><span>↗</span><strong>Geteilt</strong><small>Aus anderer App</small></button></div>`);content.querySelector('#manual').onclick=()=>manualForm();content.querySelector('#upload').onclick=()=>{const i=document.querySelector('#fileInput');i.accept='.csv,.pdf,image/*';i.removeAttribute('capture');i.click()};content.querySelector('#camera').onclick=()=>{const i=document.querySelector('#fileInput');i.accept='image/*';i.setAttribute('capture','environment');i.click()};content.querySelector('#shared').onclick=()=>showToast('Geteilte Dateien erscheinen nach Installation als App.')}
+function manualForm(existing){const t=existing||{name:'',amount:'',type:'expense',date:new Date().toISOString().slice(0,10),method:'Girokonto',status:'confirmed',source:'Manuell'};open(`<div class="sheet-title"><h2>${existing?'Buchung ändern':'Manuell buchen'}</h2><button class="close">✕</button></div><form class="form" id="txForm"><div class="field"><label>Empfänger / Sender</label><input name="name" value="${escapeHtml(t.name)}" required placeholder="z. B. REWE Markt"></div><div class="split"><div class="field"><label>Betrag</label><input name="amount" type="number" min="0.01" step="0.01" value="${t.amount}" required></div><div class="field"><label>Art</label><select name="type"><option value="expense" ${t.type==='expense'?'selected':''}>Ausgabe</option><option value="income" ${t.type==='income'?'selected':''}>Einnahme</option></select></div></div><div class="field"><label>Datum</label><input name="date" type="date" value="${String(t.date).slice(0,10)}" required></div><div class="field"><label>Zahlungsweg</label><select name="method">${['Girokonto','PayPal','Bar','Kreditkarte','Sonstiges'].map(x=>`<option ${t.method===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Notiz</label><textarea name="note" placeholder="Zusätzliche Angaben, z. B. Datum der Abbuchung">${escapeHtml(t.note||'')}</textarea></div><button class="primary" type="submit">${existing?'Änderungen speichern':'Buchung speichern'}</button></form>`);content.querySelector('#txForm').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),data=Object.fromEntries(f);data.amount=Number(data.amount);data.date=new Date(`${data.date}T12:00:00`).toISOString();data.status=t.amountUncertain?'confirmed':(t.status||'confirmed');data.source=t.source||'Manuell';if(existing){Object.assign(existing,data);delete existing.amountUncertain;if(!state.transactions.some(item=>item.id===existing.id))state.transactions.push(existing)}else{data.id=crypto.randomUUID();state.transactions.push(data)}save();sheet.close();render();showToast(existing?'Buchung aktualisiert':'Buchung gespeichert')}}
+function bankDateNote(type,date){return (type==='income'?'Auf das Konto gebucht: ':'Vom Konto abgebucht: ')+new Date(date).toLocaleDateString('de-DE')}
+function displayedTransactionNote(t){if(t.bankDate){const base=bankDateNote(t.type,t.bankDate),details=String(t.source||'').includes('Konto-Screenshot')&&String(t.note||'').includes('\n')?String(t.note).slice(String(t.note).indexOf('\n')):'';return base+details}return t.note||''}
+function detail(id){const t=state.transactions.find(x=>x.id===id);if(!t)return;const match=state.transactions.find(x=>x.id===t.matchId),shownNote=displayedTransactionNote(t);open(`<div class="sheet-title"><div><span class="eyebrow">${t.type==='income'?'Sender':'Empfänger'}</span><h2>${escapeHtml(t.name)}</h2></div><button class="close">✕</button></div><div class="detail-amount ${t.type==='income'?'in':'out'}">${t.type==='income'?'+':'−'} ${euro.format(t.amount)}</div><div class="detail-list"><div class="detail-row"><span>Datum</span><strong>${formatTransactionDate(t.date,true)}</strong></div><div class="detail-row"><span>Zahlungsweg</span><strong>${escapeHtml(t.method)}</strong></div><div class="detail-row"><span>Quelle</span><strong>${escapeHtml(t.source)}</strong></div><div class="detail-row"><span>Status</span><strong class="status ${t.status==='confirmed'?'ok':'open'}">${t.status==='confirmed'?'Geprüft & bestätigt':'Prüfung nötig'}</strong></div>${shownNote?`<div class="detail-row note-row"><span>Notiz</span><details><summary>Notiz vollständig anzeigen</summary><div>${escapeHtml(shownNote)}</div></details></div>`:''}</div>${match?`<div class="review-box"><strong>Mögliche Doppelbuchung</strong><p>${escapeHtml(match.name)} · ${euro.format(match.amount)} · ${formatTransactionDate(match.date,true)}<br>Datum und Empfänger weichen leicht ab.</p><div class="review-actions"><button class="secondary" id="separate">Verschieden</button><button class="secondary" id="merge">Zusammenführen</button></div></div>`:''}<div class="split" style="margin-top:18px"><button class="secondary" id="edit">Ändern</button><button class="secondary danger" id="delete">Löschen</button></div>`);content.querySelector('#edit').onclick=()=>manualForm(t);content.querySelector('#delete').onclick=()=>{if(confirm('Diese Buchung wirklich löschen?')){state.transactions=state.transactions.filter(x=>x.id!==id);save();sheet.close();render();showToast('Buchung gelöscht')}};content.querySelector('#merge')?.addEventListener('click',()=>{const keep={...t,name:t.name.length<=match.name.length?t.name:match.name,status:'confirmed',matchId:null,note:`Abgeglichen aus ${t.source} und ${match.source}`};state.transactions=state.transactions.filter(x=>x.id!==t.id&&x.id!==match.id);state.transactions.push(keep);save();sheet.close();render();showToast('Doppelbuchung zusammengeführt')});content.querySelector('#separate')?.addEventListener('click',()=>{t.status=match.status='confirmed';t.matchId=match.matchId=null;save();sheet.close();render();showToast('Als getrennte Buchungen bestätigt')})}
+function open(html){content.innerHTML='<div class="sheet-handle"></div>'+html;const method=content.querySelector('#txForm select[name="method"]');if(method&&html.includes('Manuell buchen'))method.value=settings.defaultMethod;content.querySelector('.close')?.addEventListener('click',()=>sheet.close());sheet.showModal()}
+document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>{state.route=b.dataset.route;render()});
+document.querySelector('#profileBtn').onclick=()=>{const cloud=window.MoneybrainCloud;if(!cloud?.isConfigured()){showToast('Cloud-Speicher noch nicht eingerichtet');return}open(`<div class="sheet-title"><h2>Moneybrain-Konto</h2><button class="close">✕</button></div><div class="detail-list"><div class="detail-row"><span>Cloud-Speicher</span><strong class="status ok" id="cloudStatus">${cloud.isSignedIn()?'Verbunden':'Nicht angemeldet'}</strong></div></div><button class="secondary" style="width:100%" id="logout">Abmelden</button>`);content.querySelector('#logout').onclick=()=>cloud.signOut()};
+document.querySelector('#settingsBtn').onclick=()=>openSettings();
+function openSettings(){const cloud=window.MoneybrainCloud,methods=['Girokonto','PayPal','Bar','Kreditkarte','Sonstiges'];open(`<div class="sheet-title"><h2>Einstellungen</h2><button class="close">✕</button></div><form class="form" id="settingsForm"><div class="detail-list"><div class="detail-row"><span>Cloud-Speicher</span><strong class="status ${cloud?.isSignedIn()?'ok':'open'}" id="cloudStatus">${cloud?.isSignedIn()?'Verbunden':'Nicht angemeldet'}</strong></div></div><div class="field"><label>Standard-Zahlungsweg</label><select name="defaultMethod">${methods.map(x=>`<option ${settings.defaultMethod===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Währung</label><select name="currency">${[['EUR','Euro (€)'],['USD','US-Dollar ($)'],['GBP','Britisches Pfund (£)']].map(([v,l])=>`<option value="${v}" ${settings.currency===v?'selected':''}>${l}</option>`).join('')}</select></div><button class="primary" type="submit">Einstellungen speichern</button></form><div class="settings-actions"><button class="secondary" id="exportBackup">Sicherung exportieren</button><button class="secondary" id="importBackup">Sicherung wiederherstellen</button></div><p class="settings-hint">Die Sicherungsdatei enthält deine Buchungen und Einstellungen. Bewahre sie an einem sicheren Ort auf.</p>${cloud?.isSignedIn()?'<button class="secondary danger settings-logout" id="settingsLogout">Abmelden</button>':''}`);content.querySelector('#settingsForm').onsubmit=e=>{e.preventDefault();const f=new FormData(e.currentTarget);settings={defaultMethod:String(f.get('defaultMethod')),currency:String(f.get('currency'))};localStorage.setItem('moneybrain.settings',JSON.stringify(settings));euro=new Intl.NumberFormat('de-DE',{style:'currency',currency:settings.currency});sheet.close();render();showToast('Einstellungen gespeichert')};content.querySelector('#exportBackup').onclick=exportBackup;content.querySelector('#importBackup').onclick=()=>document.querySelector('#backupInput').click();content.querySelector('#settingsLogout')?.addEventListener('click',()=>cloud.signOut())}
+function exportBackup(){const data={app:'Moneybrain',version:1,exportedAt:new Date().toISOString(),settings,transactions:cleanStoredTransactions(state.transactions)},blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`moneybrain-sicherung-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('Sicherung erstellt')}
+document.querySelector('#backupInput').onchange=async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const data=JSON.parse(await file.text());if(data.app!=='Moneybrain'||!Array.isArray(data.transactions))throw new Error('invalid');if(!confirm(`${data.transactions.length} Buchungen aus dieser Sicherung wiederherstellen? Der aktuelle Bestand wird ersetzt.`))return;state.transactions=cleanStoredTransactions(data.transactions);if(data.settings){settings={...settings,...data.settings};localStorage.setItem('moneybrain.settings',JSON.stringify(settings));euro=new Intl.NumberFormat('de-DE',{style:'currency',currency:settings.currency})}save();sheet.close();render();showToast('Sicherung wiederhergestellt')}catch{showToast('Keine gültige Moneybrain-Sicherung')}};
+document.querySelector('#fileInput').onchange=async e=>{
+ const files=[...e.target.files];if(!files.length)return;
+ if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}
+ else if(files.length>1){files.every(isPayPalEvidenceFile)?showPayPalBatchImport(files):(isBankScreenshotBatch(files)?showBankScreenshotDisabled():showReceiptBatchImport(files))}
+ else{open(`<div class="sheet-title"><h2>Import pr?fen</h2><button class="close">&times;</button></div><div class="import-box"><strong>1 Datei bereit</strong><p>${escapeHtml(files[0].name)}</p></div><button class="primary" id="createFromFile">Datei pr?fen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}
+ e.target.value='';
+};
+async function importCsv(file){const text=await file.text(),lines=text.trim().split(/\r?\n/),sep=lines[0].includes(';')?';':',';for(const line of lines.slice(1)){const c=line.split(sep).map(x=>x.replace(/^"|"$/g,'').trim());if(c.length<3)continue;const parsed=Number(String(c[2]).replace(/\./g,'').replace(',','.').replace(/[^0-9.-]/g,''));const date=parseDate(c[0]);if(!date||!Number.isFinite(parsed))continue;state.transactions.push({id:crypto.randomUUID(),date:date.toISOString(),name:c[1]||'Unbekannt',amount:Math.abs(parsed),type:parsed>=0?'income':'expense',method:'Girokonto',status:'review',source:'CSV'})}save()}
+function parseDate(s){const p=s.split(/[.\/-]/);if(p.length!==3)return null;return p[0].length===4?new Date(+p[0],+p[1]-1,+p[2],12):new Date(+p[2],+p[1]-1,+p[0],12)}
+function formatTransactionDate(value,full=false){const date=new Date(value);if(Number.isNaN(date.getTime()))return 'Datum fehlt';return full?date.toLocaleDateString('de-DE'):shortDate.format(date)}
+function showToast(msg){const t=document.querySelector('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
+function initials(s){return s.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase()}
+function capitalize(s){return s.charAt(0).toUpperCase()+s.slice(1)}
+function escapeHtml(s=''){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+window.moneybrainGetTransactions=()=>cleanStoredTransactions(state.transactions);
+window.moneybrainApplyCloudTransactions=(items,updatedAt)=>{const restored=cleanStoredTransactions(items);state.transactions=restored;localStorage.setItem('moneybrain.transactions',JSON.stringify(restored));localStorage.setItem('moneybrain.localUpdatedAt',updatedAt||new Date().toISOString());backupTransactions(restored);render()};
+window.render=render;
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
+(async()=>{render();await restorePersistentTransactions();await window.MoneybrainCloud?.init()})();
+
+handleSharedLaunch();
+async function handleSharedLaunch(){
+ const params=new URLSearchParams(location.search);
+ if(params.has('shareError')){showToast('Die geteilte Datei konnte nicht gelesen werden.');history.replaceState({},'',location.pathname);return}
+ if(!params.has('shared'))return;
+ history.replaceState({},'',location.pathname);
+ const shared=await readLatestShare();
+ if(!shared){showToast('Keine geteilte Datei gefunden.');return}
+ const files=shared.files||[],names=files.length?files.map(file=>escapeHtml(file.name||'Kontoauszug')).join('<br>'):'Geteilter Inhalt';
+ open(`<div class="sheet-title"><h2>Kontoauszug erhalten</h2><button class="close">✕</button></div><div class="import-box"><strong>${files.length||1} Datei(en) aus deiner Bank-App</strong><p>${names}</p></div><p class="subtitle" style="margin-top:14px">Der Kontoauszug wurde nur auf diesem Gerät gespeichert. Prüfe und ergänze die Buchungsdaten vor der Übernahme.</p><button class="primary" id="reviewShared">Import prüfen</button>`);
+ content.querySelector('#reviewShared').onclick=()=>showDocumentImport(files[0]);
+}
+function openShareDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open('moneybrain-share',1);request.onupgradeneeded=()=>request.result.createObjectStore('inbox',{keyPath:'id',autoIncrement:true});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
+async function readLatestShare(){try{const db=await openShareDb();return await new Promise((resolve,reject)=>{const tx=db.transaction('inbox','readwrite'),store=tx.objectStore('inbox'),request=store.openCursor(null,'prev');request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(null);return}const value=cursor.value;cursor.delete();resolve(value)};request.onerror=()=>reject(request.error);tx.oncomplete=()=>db.close()})}catch{return null}}
+async function showStatementOnly(file){
+ if(!file){showToast('Der Kontoauszug enthält keine Datei.');return}
+ const button=content.querySelector('#reviewShared,#createFromFile');button.disabled=true;button.textContent='Kontoauszug wird gelesen …';
+ try{
+  const result=await window.parseDeutscheBankStatement(file);
+  open('<div class="sheet-title"><h2>Importübersicht</h2><button class="close">✕</button></div><p class="subtitle">'+result.pages+' Seiten wurden vollständig gelesen.'+(result.cashMovements?' '+result.cashMovements+' Bargeldbewegung(en) über '+euro.format(result.cashExcluded)+' werden nicht berücksichtigt.':'')+'</p><div class="year-summary"><span class="eyebrow">Erkannte Buchungen</span><strong style="font-size:30px;display:block;margin-top:8px">'+result.transactions.length+'</strong><div class="year-summary-grid"><div><small>Einnahmen</small><strong>'+euro.format(result.income)+'</strong></div><div><small>Ausgaben</small><strong>'+euro.format(result.expense)+'</strong></div></div></div><div class="detail-list"><div class="detail-row"><span>Status</span><strong class="status ok">Kontoauszug geprüft</strong></div><div class="detail-row"><span>Übernahme</span><strong>Alle Buchungen</strong></div></div><button class="primary" id="importStatement">Alle '+result.transactions.length+' Buchungen übernehmen</button><button class="secondary" style="width:100%" id="previewStatement">Buchungen ansehen</button>');
+  content.querySelector('#previewStatement').onclick=()=>{open('<div class="sheet-title"><h2>Erkannte Buchungen</h2><button class="close">✕</button></div><p class="subtitle">'+result.transactions.length+' Buchungen, chronologisch sortiert</p>'+list([...result.transactions].sort((a,b)=>new Date(b.date)-new Date(a.date))))};
+  content.querySelector('#importStatement').onclick=()=>importStatementTransactions(result.transactions);
+ }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Kontoauszug nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
+}
+const matchDay=86400000;
+function isGenericBankMerchant(name){return /^(Kartenzahlung|Unbekannte Buchung)$/i.test(String(name||''))}
+function transactionNameKey(value){return String(value||'').toLowerCase().replace(/gmbh|markt|marken-discount|filiale|[^a-z0-9]/g,'')}
+function sameTransactionMerchant(a,b){const left=transactionNameKey(a),right=transactionNameKey(b);return left.length>2&&right.length>2&&(left.includes(right)||right.includes(left))}
+function sourceParts(value){return String(value||'').split(/\s*\+\s*/).filter(Boolean)}
+function combinedSource(a,b){return [...new Set([...sourceParts(a),...sourceParts(b)])].join(' + ')}
+function sourceFamily(value){const text=String(value||'');if(/Kontoauszug|CSV/i.test(text))return 'bank';if(/PayPal/i.test(text))return 'paypal';if(/Kassenbon/i.test(text))return 'receipt';if(/Manuell/i.test(text))return 'manual';return text.toLowerCase()}
+function reconcileAllTransactions(items){
+ const result=[];
+ for(const original of cleanStoredTransactions(items)){
+  const item={...original},candidates=result.filter(existing=>existing.type===item.type&&Math.abs(Number(existing.amount)-Number(item.amount))<0.005&&Math.abs(new Date(existing.date)-new Date(item.date))<=5*matchDay&&sourceFamily(existing.source)!==sourceFamily(item.source));
+  const strong=candidates.filter(existing=>sameTransactionMerchant(existing.name,item.name));
+  if(strong.length===1){
+   const existing=strong[0],bank=[existing,item].find(value=>sourceFamily(value.source)==='bank'),paypal=[existing,item].find(value=>sourceFamily(value.source)==='paypal'),receipt=[existing,item].find(value=>sourceFamily(value.source)==='receipt');
+   const preferred=receipt||paypal||existing;
+   Object.assign(existing,preferred,{id:existing.id,source:combinedSource(existing.source,item.source),status:'confirmed',method:paypal?'PayPal':(preferred.method||existing.method),bankDate:bank?(bank.bankDate||bank.date):(existing.bankDate||item.bankDate),note:bank?bankDateNote(item.type,bank.bankDate||bank.date):(preferred.note||existing.note)});delete existing.matchId;continue;
+  }
+  if(candidates.length===1){item.status='review';item.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=item.id}
+  result.push(item);
+ }
+ return result;
+}
+function transactionCandidates(transaction,sourceTest){return state.transactions.filter(item=>sourceTest(item)&&item.type===transaction.type&&Math.abs(Number(item.amount)-Number(transaction.amount))<0.005&&Math.abs(new Date(item.date)-new Date(transaction.date))<=5*matchDay)}
+function bankReferenceFromNote(note){const text=String(note||'');return (text.match(/Kundenreferenz\s*([A-Z0-9()+?._-]+)/i)||text.match(/Mandatsreferenz\s*([A-Z0-9()+?._-]+)/i))?.[1]||''}
+function sameBankImportIdentity(a,b){
+ if(a.type!==b.type||Math.abs(Number(a.amount)-Number(b.amount))>=0.005)return false;
+ if(String(a.date).slice(0,10)!==String(b.date).slice(0,10))return false;
+ if(!sameTransactionMerchant(a.name,b.name)&&transactionNameKey(a.name)!==transactionNameKey(b.name))return false;
+ const leftRef=bankReferenceFromNote(a.note),rightRef=bankReferenceFromNote(b.note);return !leftRef||!rightRef||leftRef===rightRef;
+}
+function importStatementTransactions(items){
+ const times=items.map(item=>new Date(item.date).getTime()),rangeStart=Math.min(...times)-matchDay,rangeEnd=Math.max(...times)+matchDay;
+ localStorage.setItem('moneybrain.bankReference',JSON.stringify(items.map(item=>({name:item.name,amount:item.amount,type:item.type,date:item.date,valueDate:item.valueDate||item.date}))));
+ let replacedScreenshots=0;
+ state.transactions=state.transactions.filter(item=>{const source=String(item.source||''),time=new Date(item.bankDate||item.date).getTime();if(source.includes('Konto-Screenshot')&&!source.includes('Kassenbon')&&time>=rangeStart&&time<=rangeEnd){replacedScreenshots++;return false}return true});
+ let merged=0,review=0,added=0;
+ items.forEach(bank=>{
+  const existingStatements=state.transactions.filter(item=>String(item.source||'').includes('Kontoauszug')&&sameBankImportIdentity(item,bank));
+  if(existingStatements.length===1){const existing=existingStatements[0];Object.assign(existing,{name:bank.name,amount:bank.amount,type:bank.type,date:bank.date,valueDate:bank.valueDate||bank.date,method:bank.method,status:'confirmed',note:bank.note});delete existing.matchId;merged++;return}
+  const screenshots=state.transactions.filter(item=>String(item.source||'').includes('Konto-Screenshot')&&item.type===bank.type&&Math.abs(Number(item.amount)-Number(bank.amount))<0.005&&Math.abs(new Date(item.bankDate||item.date)-new Date(bank.date))<=matchDay&&sameTransactionMerchant(item.name,bank.name));
+  if(screenshots.length===1){const screenshot=screenshots[0],hasReceipt=String(screenshot.source||'').includes('Kassenbon');Object.assign(screenshot,{bankDate:bank.date,valueDate:bank.valueDate||bank.date,method:bank.method||screenshot.method,status:'confirmed',source:'Kontoauszug + Konto-Screenshot'+(hasReceipt?' + Kassenbon':''),note:bankDateNote(bank.type,bank.date)});delete screenshot.matchId;merged++;return}
+  if(screenshots.length>1){bank.status='review';state.transactions.push(bank);review++;added++;return}
+  const candidates=transactionCandidates(bank,item=>String(item.source||'').includes('Kassenbon'));
+  const matching=candidates.filter(item=>sameTransactionMerchant(item.name,bank.name));
+  if(matching.length===1){const receipt=matching[0];Object.assign(receipt,{bankDate:bank.date,valueDate:bank.valueDate||bank.date,method:bank.method||receipt.method,status:'confirmed',source:'Kontoauszug + Kassenbon',note:bankDateNote(bank.type,bank.date)});delete receipt.matchId;merged++;return}
+  if(candidates.length===1){bank.status='review';bank.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=bank.id;review++}else if(candidates.length>1){bank.status='review';review++}
+  state.transactions.push(bank);added++;
+ });
+ save();sheet.close();state.route='transactions';state.filter='all';render();
+ showToast(merged+' abgeglichen, '+added+' übernommen'+(review?', '+review+' zur Prüfung':'')+'; Bargeld ignoriert');
+}
+
+function isBankScreenshotFile(file){return /deutsche.?bank|konto.?screenshot|konto.?umsatz/i.test(String(file?.name||''))}
+function isPayPalEvidenceFile(file){return /paypal/i.test(String(file?.name||''))&&(String(file?.type||'').startsWith('image/')||/\.pdf$/i.test(file.name))}
+function isBankScreenshotBatch(files){return files.length>0&&files.every(file=>file.type.startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(file.name))&&files.some(isBankScreenshotFile)}
+function showBankScreenshotDisabled(){
+ open('<div class="sheet-title"><h2>Bank-Screenshots deaktiviert</h2><button class="close">&times;</button></div><div class="review-box"><strong>Bitte Kontoauszug oder Kontoumsaetze als PDF verwenden</strong><p>Bank-Screenshots werden wegen unzuverlaessiger Betrags- und Haendlererkennung nicht mehr verarbeitet. Kassenbons und Rechnungen als Bild oder PDF funktionieren weiterhin.</p></div>');
+}
+async function showDocumentImport(file){
+ if(!file){showToast('Keine Datei gefunden.');return}
+ if(/kontoauszug|kontoumsa(?:e|\u00e4)tze/i.test(file.name))return showStatementOnly(file);
+ if(isBankScreenshotFile(file))return showBankScreenshotDisabled();
+ if(isPayPalEvidenceFile(file))return showPayPalImport(file);
+ if(file.type==='application/pdf'||/\.pdf$/i.test(file.name)){try{const transactions=await window.parsePayPalActivity(file,()=>{});return showPayPalReview(transactions)}catch(error){if(!/kein PayPal-Aktivit/i.test(error.message)&&!/kein PayPal-Aktiv/i.test(error.message)&&!/kein PayPal/i.test(error.message))console.warn(error)}}
+ return showReceiptImport(file);
+}
+async function showPayPalImport(file){
+ try{
+  const transactions=await window.parsePayPalActivity(file,message=>{const button=content.querySelector('#reviewShared,#createFromFile');if(button)button.textContent=message});
+  showPayPalReview(transactions);
+ }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>PayPal-Nachweis nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
+}
+async function showPayPalBatchImport(files){
+ const transactions=[];for(const file of files){try{transactions.push(...await window.parsePayPalActivity(file,()=>{}))}catch{}}
+ if(!transactions.length){showToast('Keine PayPal-Buchungen erkannt');return}
+ showPayPalReview(transactions);
+}
+function showPayPalReview(transactions){open(`<div class="sheet-title"><h2>PayPal prüfen</h2><button class="close">✕</button></div><p class="subtitle">Korrigiere die erkannten Angaben vor dem Speichern. Abgewählte Buchungen werden nicht übernommen.</p><form class="paypal-review-form" id="paypalReviewForm">${transactions.map((item,index)=>`<fieldset class="paypal-review-card"><label class="paypal-include"><input type="checkbox" name="include-${index}" checked> Buchung übernehmen</label><div class="field"><label>Händler / Sender</label><input name="name-${index}" value="${escapeHtml(item.name)}" required></div><div class="split"><div class="field"><label>Betrag</label><input name="amount-${index}" type="number" min="0.01" step="0.01" value="${Number(item.amount).toFixed(2)}" required></div><div class="field"><label>Art</label><select name="type-${index}"><option value="expense" ${item.type==='expense'?'selected':''}>Ausgabe</option><option value="income" ${item.type==='income'?'selected':''}>Einnahme</option></select></div></div><div class="split"><div class="field"><label>Datum</label><input name="date-${index}" type="date" value="${String(item.date).slice(0,10)}" required></div><div class="field"><label>Zahlungsweg</label><select name="method-${index}">${['PayPal','Girokonto','Kreditkarte','Bar','Sonstiges'].map(method=>`<option ${item.method===method?'selected':''}>${method}</option>`).join('')}</select></div></div><div class="field"><label>Notiz</label><textarea name="note-${index}">${escapeHtml(item.note||'')}</textarea></div></fieldset>`).join('')}<button class="primary" type="submit">Geprüfte Buchungen speichern</button></form>`);content.querySelector('#paypalReviewForm').onsubmit=e=>{e.preventDefault();const form=new FormData(e.currentTarget),reviewed=transactions.flatMap((item,index)=>{if(!form.get(`include-${index}`))return [];const amount=Number(form.get(`amount-${index}`)),date=String(form.get(`date-${index}`)||'');if(!Number.isFinite(amount)||amount<=0||!date)return [];return [{...item,name:cleanStoredPayPalName(form.get(`name-${index}`)),amount,type:String(form.get(`type-${index}`)),date:new Date(`${date}T12:00:00`).toISOString(),method:String(form.get(`method-${index}`)),note:String(form.get(`note-${index}`)||''),source:'PayPal-Nachweis',status:'confirmed'}]});if(!reviewed.length){showToast('Keine Buchung zur Übernahme ausgewählt');return}importPayPalTransactions(reviewed);save();sheet.close();state.route='transactions';state.filter='all';render();showToast(reviewed.length+' PayPal-Buchung(en) geprüft und gespeichert')}}
+function importPayPalTransactions(transactions){
+ for(const incoming of transactions){
+  const existing=state.transactions.filter(item=>item.type===incoming.type&&Math.abs(Number(item.amount)-Number(incoming.amount))<0.005&&Math.abs(new Date(item.date)-new Date(incoming.date))<=7*86400000&&sameTransactionMerchant(cleanStoredPayPalName(item.name),incoming.name));
+  if(existing.length===1){const saved=existing[0],bank=sourceFamily(saved.source)==='bank';Object.assign(saved,incoming,{id:saved.id,date:bank?incoming.date:(saved.date||incoming.date),bankDate:bank?(saved.bankDate||saved.date):saved.bankDate,source:combinedSource(saved.source,incoming.source),status:'confirmed',note:bank?bankDateNote(incoming.type,saved.bankDate||saved.date):(incoming.note||saved.note)});continue}
+  state.transactions.push(incoming);
+ }
+}
+async function showReceiptImport(file){
+ try{
+  const receipt=await window.parseRetailReceipt(file,message=>{const button=content.querySelector('#reviewShared,#createFromFile');if(button)button.textContent=message});
+  open('<div class="sheet-title"><h2>Beleg erkannt</h2><button class="close">✕</button></div><div class="detail-amount out">− '+euro.format(receipt.amount)+'</div><div class="detail-list"><div class="detail-row"><span>Händler</span><strong>'+escapeHtml(receipt.name)+'</strong></div><div class="detail-row"><span>Datum</span><strong>'+new Date(receipt.date).toLocaleDateString('de-DE')+'</strong></div><div class="detail-row"><span>Zahlungsweg</span><strong>'+escapeHtml(receipt.method)+'</strong></div><div class="detail-row"><span>Status</span><strong class="status ok">Beleg geprüft</strong></div></div><button class="primary" id="importReceipt">Buchung übernehmen</button><button class="secondary" style="width:100%" id="editReceipt">Vorher ändern</button>');
+  content.querySelector('#importReceipt').onclick=()=>importReceiptTransaction(receipt);
+  content.querySelector('#editReceipt').onclick=()=>manualForm(receipt);
+ }catch(error){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Beleg nicht erkannt</strong><p>'+escapeHtml(error.message)+'</p></div>')}
+}
+async function showReceiptBatchImport(files){
+ if(files.some(file=>/kontoauszug|kontoumsa(?:e|\u00e4)tze/i.test(file.name))){open('<div class="sheet-title"><h2>Getrennter Import n?tig</h2><button class="close">&times;</button></div><div class="review-box"><strong>Kontoausz?ge bitte einzeln importieren</strong><p>Mehrere Kassenbons k?nnen gemeinsam gelesen werden. Bank-Screenshots werden aus Sicherheitsgr?nden nicht als Stapel uebernommen.</p></div>');return}
+ open('<div class="sheet-title"><h2>Belege werden gelesen</h2><button class="close">&times;</button></div><div class="import-box"><strong id="batchProgress">0 von '+files.length+' Belegen gepr?ft</strong><p>PDFs und Bilder werden nacheinander ausgewertet.</p></div>');
+ const receipts=[],errors=[];
+ for(let index=0;index<files.length;index++){const file=files[index];try{receipts.push(await window.parseRetailReceipt(file,message=>{const progress=content.querySelector('#batchProgress');if(progress)progress.textContent=(index+1)+' von '+files.length+': '+message}))}catch(error){errors.push({file,error})}const progress=content.querySelector('#batchProgress');if(progress)progress.textContent=(index+1)+' von '+files.length+' Belegen gepr?ft'}
+ if(!receipts.length){open('<div class="sheet-title"><h2>Import nicht moeglich</h2><button class="close">&times;</button></div><div class="review-box"><strong>Keine Kassenbons erkannt</strong><p>Bank-Umsatzlisten k?nnen nicht ?ber den Belegstapel importiert werden. Verwende daf?r am Monatsende den PDF-Kontoauszug.</p></div>');return}
+ const rows=receipts.map(receipt=>'<div class="detail-row"><span>'+escapeHtml(receipt.name)+'<br><small>'+new Date(receipt.date).toLocaleDateString('de-DE')+'</small></span><strong>? '+euro.format(receipt.amount)+'</strong></div>').join('');
+ open('<div class="sheet-title"><h2>Belege erkannt</h2><button class="close">&times;</button></div><p class="subtitle">'+receipts.length+' von '+files.length+' Belegen wurden sicher erkannt.</p><div class="detail-list">'+rows+'</div>'+(errors.length?'<div class="review-box"><strong>'+errors.length+' nicht erkannt</strong><p>Diese Dateien werden nicht uebernommen.</p></div>':'')+'<button class="primary" id="importReceiptBatch">Alle '+receipts.length+' Belege ?bernehmen</button>');
+ content.querySelector('#importReceiptBatch').onclick=()=>{for(const receipt of receipts)importReceiptIntoState(receipt);save();sheet.close();render();showToast(receipts.length+' Belege uebernommen')};
+}
+function importReceiptIntoState(receipt){
+ const candidates=transactionCandidates(receipt,item=>String(item.source||'').includes('Kontoauszug'));
+ const matching=candidates.filter(item=>sameTransactionMerchant(item.name,receipt.name)||isGenericBankMerchant(item.name));
+ if(matching.length===1){const bank=matching[0],bankDate=bank.bankDate||bank.date;Object.assign(bank,receipt,{id:bank.id,date:receipt.date,bankDate,valueDate:bank.valueDate||bankDate,method:bank.method||receipt.method,status:'confirmed',source:'Kontoauszug + Kassenbon',note:bankDateNote(bank.type,bankDate)});delete bank.matchId;return}
+ if(candidates.length===1){receipt.status='review';receipt.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=receipt.id}
+ state.transactions.push(receipt);
+}
+function importReceiptTransaction(receipt){
+ const candidates=transactionCandidates(receipt,item=>String(item.source||'').includes('Kontoauszug')||String(item.source||'').includes('Konto-Screenshot'));
+ const matching=candidates.filter(item=>sameTransactionMerchant(item.name,receipt.name)||isGenericBankMerchant(item.name));
+ if(matching.length===1){
+  const bank=matching[0],bankDate=bank.bankDate||bank.date,fromScreenshot=String(bank.source||'').includes('Konto-Screenshot');
+  Object.assign(bank,receipt,{id:bank.id,date:receipt.date,bankDate,valueDate:bank.valueDate||bankDate,method:bank.method||receipt.method,status:'confirmed',source:(fromScreenshot?'Konto-Screenshot':'Kontoauszug')+' + Kassenbon',note:bankDateNote(bank.type,bankDate)});delete bank.matchId;
+  save();sheet.close();render();showToast('Beleg mit Kontoauszug abgeglichen');return;
+ }
+ if(candidates.length===1){receipt.status='review';receipt.matchId=candidates[0].id;candidates[0].status='review';candidates[0].matchId=receipt.id}
+ state.transactions.push(receipt);save();sheet.close();render();showToast(candidates.length===1?'Mögliche Doppelbuchung zur Prüfung':'Beleg übernommen');
+}

@@ -41,7 +41,7 @@ function monthToDateComparison(type){
 }
 function render(){document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.route===state.route));if(state.route==='home')home();if(state.route==='transactions')transactions();if(state.route==='statistics')statistics();if(state.route==='archive')archive()}
 function home(){const m=txs(),inc=total(m,'income'),exp=total(m,'expense');app.innerHTML=`
- <section class="hero"><h1><span class="hero-name">moneybrain</span><span class="hero-tagline">Deine Finanzen.<br>Alles im Blick.</span></h1><p class="subtitle">Dein ${capitalize(new Intl.DateTimeFormat('de-DE',{month:'long'}).format(now))} – klar, bunt und aufgeräumt.</p></section>
+ <section class="hero"><h1><span class="hero-name">moneybrain</span><span class="hero-tagline">Deine Finanzen.<br>Alles im Blick.</span></h1></section>
  <div class="month-row"><h2>${capitalize(monthFmt.format(now))}</h2><span class="month-chip">Heute, ${now.getDate()}.</span></div>
  <div class="balance-grid">
   <button class="balance-card income" data-open-type="income"><span class="card-icon">↙</span><span class="card-label">Einnahmen</span><span class="amount">${euro.format(inc)}</span>${monthToDateComparison('income')}</button>

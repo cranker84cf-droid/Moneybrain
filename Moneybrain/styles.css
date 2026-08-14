@@ -30,3 +30,10 @@ main{padding:12px 22px 32px}.eyebrow{color:#44e1ef;font-weight:900;letter-spacin
 .hero-name{margin:0 auto 11px;font-size:29px}
 .hero-tagline{font-size:17px;line-height:1.35;letter-spacing:2.1px;text-transform:uppercase;background:linear-gradient(90deg,#ffd12f 0%,#ffca3d 38%,#4be4f1 70%,#a66cff 100%);background-clip:text;-webkit-background-clip:text;color:transparent;-webkit-text-fill-color:transparent;text-shadow:none}
 .hero .subtitle{max-width:330px;margin-inline:auto}
+
+/* Kompakter Kopfbereich, Version 53 */
+.topbar{height:72px}
+.profile-logo{width:58px;height:58px;border-radius:18px;padding:2px}
+.profile-logo img{border-radius:16px}
+.hero{margin-top:0}
+.hero h1{margin-top:0}

@@ -181,6 +181,7 @@ async function showDocumentImport(file){
  if(isBankScreenshotFile(file))return showBankScreenshotDisabled();
  if(isPayPalEvidenceFile(file))return showPayPalImport(file);
  if(file.type==='application/pdf'||/\.pdf$/i.test(file.name)){try{const transactions=await window.parsePayPalActivity(file,()=>{});return showPayPalReview(transactions)}catch(error){if(!/kein PayPal-Aktivit/i.test(error.message)&&!/kein PayPal-Aktiv/i.test(error.message)&&!/kein PayPal/i.test(error.message))console.warn(error)}}
+ if(String(file.type||'').startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(file.name)){try{const transactions=await window.parsePayPalActivity(file,()=>{});return showPayPalReview(transactions)}catch(error){console.info('Kein PayPal-Screenshot, Belegerkennung wird verwendet:',error.message)}}
  return showReceiptImport(file);
 }
 async function showPayPalImport(file){

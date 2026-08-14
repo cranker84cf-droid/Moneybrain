@@ -10,7 +10,10 @@ window.parsePayPalActivity=async function(file,onProgress=()=>{}){
  if(!window.Tesseract)throw new Error('Die Bilderkennung ist nicht geladen.');
  onProgress('PayPal-Nachweis wird vorbereitet ...');
  const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,logger:m=>{if(m.status==='recognizing text')onProgress('PayPal wird gelesen: '+Math.round((m.progress||0)*100)+' %')}});
- try{text=(await worker.recognize(file)).data.text||''}finally{await worker.terminate()}
+ try{
+  await worker.setParameters({tessedit_pageseg_mode:'11',preserve_interword_spaces:'1'});
+  text=(await worker.recognize(file)).data.text||'';
+ }finally{await worker.terminate()}
  return parsePayPalActivityText(text,file.name);
 };
 
@@ -68,10 +71,10 @@ function paypalKnownName(value){return /^(?:zooSky24|McDonalds|Netflix\.com|REWE
 function parsePayPalActivityText(text,filename='PayPal'){
  const lines=paypalFold(text).split(/\r?\n/).map(line=>line.replace(/\s+/g,' ').trim()).filter(Boolean),transactions=[];
  for(let index=0;index<lines.length;index++){
-  const line=lines[index],amountMatch=line.match(/([+=\-−–—])\s*(\d{1,3}(?:[.\s]\d{3})*,\d{2})\s*(EUR|USD|€|\$)?\s*$/i);
+  const line=lines[index],amountMatch=line.match(/([+=\-−–—~])\s*[€$]?\s*(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*(EUR|USD|€|\$)?/i);
   if(!amountMatch)continue;
   const amount=paypalMoney(amountMatch[2]);if(!Number.isFinite(amount)||amount<=0)continue;
-  const context=lines.slice(Math.max(0,index-2),Math.min(lines.length,index+4)).join(' '),type=/\+/.test(amountMatch[1])||/geld erhalten/i.test(context)?'income':'expense';
+  const context=lines.slice(Math.max(0,index-9),Math.min(lines.length,index+10)).join(' '),type=/\+/.test(amountMatch[1])||/geld erhalten/i.test(context)?'income':'expense';
   let name=line.slice(0,amountMatch.index).trim();if(!name||/^(zahlung|geld erhalten)$/i.test(name))name=paypalMerchant(lines,index);
   const date=paypalDate(lines,index,filename);if(!date)continue;
   const detail=lines.slice(Math.max(0,index-1),index+4).find(value=>/zahlung|geld erhalten|geld gesendet|google pay|paypal card|einzugsverfahren/i.test(value))||'',foreign=/USD|\$/i.test(amountMatch[3]||'');
@@ -83,9 +86,10 @@ function parsePayPalActivityText(text,filename='PayPal'){
 function paypalUnique(items){return items.filter((item,index,all)=>all.findIndex(other=>(item.externalId&&other.externalId===item.externalId)||(other.type===item.type&&other.amount===item.amount&&other.date.slice(0,10)===item.date.slice(0,10)&&paypalKey(other.name)===paypalKey(item.name)))===index)}
 function paypalPdfNoise(line){return /^(?:H(?:ä|a)ndlerkonto-ID|PayPal-ID|Transaktions(?:ü|u)bersicht|Datum Typ Name|Hinweis:|Copyright|Boulevard Royal|Seite \d+ von|\d{2}\.\d{2}\.\d{2}\s*[-–])/i.test(line)}
 function paypalFold(value){return String(value||'').replace(/\u00ad/g,'').replace(/Ã¼/g,'ü').replace(/Ã¤/g,'ä').replace(/Ã¶/g,'ö').replace(/ÃŸ/g,'ß').replace(/â‚¬/g,'€').replace(/âˆ’|â€“/g,'−')}
-function paypalMerchant(lines,index){for(let distance=1;distance<=4;distance++)for(const offset of [-distance,distance]){const candidate=lines[index+offset];if(candidate&&!/deine letzten|aktivit(?:ä|a)ten|^juli$|^august$|^aug\.?$|zahlung|geld erhalten|geld gesendet|zugestellt|einzugsverfahren/i.test(candidate)&&!/[+\-−–—]\s*\d+[.,]\d{2}/.test(candidate))return candidate}return 'PayPal'}
-function paypalDate(lines,index,filename){const months={jan:0,januar:0,feb:1,februar:1,mae:2,maerz:2,mar:2,march:2,apr:3,april:3,mai:4,may:4,jun:5,juni:5,june:5,juli:6,jul:6,july:6,aug:7,august:7,sep:8,september:8,okt:9,oktober:9,oct:9,nov:10,november:10,dez:11,dezember:11,dec:11},monthNames=Object.keys(months).join('|'),monthFirst=new RegExp('\\b('+monthNames+')\\.?\\s*(\\d{1,2})\\b','i'),dayFirst=new RegExp('\\b(\\d{1,2})\\.\\s*('+monthNames+')\\b','i');let month,day;for(let distance=0;distance<=4&&month===undefined;distance++)for(const offset of distance?[distance,-distance]:[0]){const value=String(lines[index+offset]||''),first=value.match(monthFirst),second=value.match(dayFirst);if(first){month=months[first[1].toLowerCase().replace('ä','ae')];day=Number(first[2]);break}if(second){month=months[second[2].toLowerCase().replace('ä','ae')];day=Number(second[1]);break}}if(month===undefined)return null;const fileYear=Number((filename.match(/(20\d{2})/)||[])[1]),now=new Date(),year=fileYear||now.getFullYear(),date=new Date(year,month,day,12);if(date>new Date(now.getTime()+31*86400000))date.setFullYear(year-1);return date}
+function paypalMerchantCandidate(value){return value&&!/deine letzten|aktivit(?:ä|a)ten|^juli$|^august$|^aug\.?$|zahlung|geld erhalten|geld gesendet|zugestellt|einzugsverfahren|paypal\.com|myaccount|^5g$|^\d{1,2}:\d{2}$/i.test(value)&&!/[+\-−–—~]\s*[€$]?\s*\d+[.,]\d{2}/.test(value)&&!/^\d{1,2}\.\s*(?:jan|feb|mär|mae|mar|apr|mai|jun|jul|aug|sep|okt|nov|dez)/i.test(value)}
+function paypalMerchant(lines,index){for(let distance=1;distance<=10;distance++)for(const offset of [-distance,distance]){const candidate=lines[index+offset];if(paypalMerchantCandidate(candidate))return candidate}return 'PayPal'}
+function paypalDate(lines,index,filename){const months={jan:0,januar:0,feb:1,februar:1,mae:2,maerz:2,mar:2,march:2,apr:3,april:3,mai:4,may:4,jun:5,juni:5,june:5,juli:6,jul:6,july:6,aug:7,august:7,sep:8,september:8,okt:9,oktober:9,oct:9,nov:10,november:10,dez:11,dezember:11,dec:11},monthNames=Object.keys(months).join('|'),monthFirst=new RegExp('\\b('+monthNames+')\\.?\\s*(\\d{1,2})\\b','i'),dayFirst=new RegExp('\\b(\\d{1,2})\\.\\s*('+monthNames+')\\b','i');let month,day;for(let distance=0;distance<=10&&month===undefined;distance++)for(const offset of distance?[distance,-distance]:[0]){const value=String(lines[index+offset]||''),first=value.match(monthFirst),second=value.match(dayFirst);if(first){month=months[first[1].toLowerCase().replace('ä','ae')];day=Number(first[2]);break}if(second){month=months[second[2].toLowerCase().replace('ä','ae')];day=Number(second[1]);break}}if(month===undefined)return null;const fileYear=Number((filename.match(/(20\d{2})/)||[])[1]),now=new Date(),year=fileYear||now.getFullYear(),date=new Date(year,month,day,12);if(date>new Date(now.getTime()+31*86400000))date.setFullYear(year-1);return date}
 function paypalCleanMerchant(value){let clean=String(value||'PayPal').replace(/^[=+\-−–—|:;.,_\s]+/,'').replace(/\s+\d{4,8}\s*$/,'').replace(/\s+[=+\-−–—]?\s*$/,'').replace(/\s{2,}/g,' ').trim(),known=[[/z{1,2}[o0]{2}\s*sky\s*24/i,'zooSky24'],[/m[cd]{1,2}onald'?s/i,'McDonalds'],[/netf[l1i]ix/i,'Netflix.com'],[/rewe\s+markt/i,'REWE Markt Moehring OHG'],[/google\s+payment/i,'Google Payment Ireland Limited'],[/obi(?:\s+sagt\s+danke)?/i,'OBI'],[/tedi/i,'TEDi'],[/edeka/i,'EDEKA'],[/bose/i,'Bose GmbH'],[/mms\s+e-?commerce|media\s*markt/i,'Media Markt'],[/stadt-?apotheke/i,'Stadt-Apotheke Elze'],[/stabilo/i,'Stabilo-Markt Elze'],[/steampower/i,'Steam'],[/disney/i,'DisneyPlus'],[/cinemaxx/i,'CinemaxX'],[/spotify/i,'Spotify'],[/g2a/i,'G2A.COM Limited'],[/k4g/i,'K4G LTD'],[/aldi/i,'ALDI Nord']];for(const [pattern,name] of known)if(pattern.test(clean)){clean=name;break}clean=clean.replace(/^[A-Z0-9]{1,3}\s+(?=[A-ZÄÖÜ][a-zäöü])/,'');return clean||'PayPal'}
-function paypalSignedMoney(value){return Number(String(value).replace(/\s/g,'').replace(/\./g,'').replace(',','.'))}
+function paypalSignedMoney(value){return Number(String(value).replace(/\s/g,'').replace(/\.(?=\d{3}(?:\D|$))/g,'').replace(',','.'))}
 function paypalMoney(value){return Math.abs(paypalSignedMoney(value))}
 function paypalKey(value){return String(value||'').toLowerCase().replace(/[^a-z0-9]/g,'')}

@@ -76,7 +76,7 @@ document.querySelector('#fileInput').onchange=async e=>{
  const files=[...e.target.files],importMode=e.target.dataset.importMode;delete e.target.dataset.importMode;e.target.multiple=true;if(!files.length)return;
  if(importMode==='paypal'){e.target.value='';if(files.length>5){showToast('Bitte höchstens 5 PayPal-Screenshots auswählen');return}return showPayPalBatchImport(files)}
  if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}
- else if(files.length>1){files.every(isPayPalEvidenceFile)?showPayPalBatchImport(files):(isBankScreenshotBatch(files)?showBankScreenshotDisabled():showReceiptBatchImport(files))}
+ else if(files.length>1){isBankScreenshotBatch(files)?showBankScreenshotDisabled():(files.every(isImageFile)?showSmartImageBatchImport(files):(files.every(isPayPalEvidenceFile)?showPayPalBatchImport(files):showReceiptBatchImport(files)))}
  else{open(`<div class="sheet-title"><h2>Import pr?fen</h2><button class="close">&times;</button></div><div class="import-box"><strong>1 Datei bereit</strong><p>${escapeHtml(files[0].name)}</p></div><button class="primary" id="createFromFile">Datei pr?fen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}
  e.target.value='';
 };
@@ -171,6 +171,7 @@ function importStatementTransactions(items){
 
 function isBankScreenshotFile(file){return /deutsche.?bank|konto.?screenshot|konto.?umsatz/i.test(String(file?.name||''))}
 function isPayPalEvidenceFile(file){return /paypal/i.test(String(file?.name||''))&&(String(file?.type||'').startsWith('image/')||/\.pdf$/i.test(file.name))}
+function isImageFile(file){return String(file?.type||'').startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(String(file?.name||''))}
 function isBankScreenshotBatch(files){return files.length>0&&files.every(file=>file.type.startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(file.name))&&files.some(isBankScreenshotFile)}
 function showBankScreenshotDisabled(){
  open('<div class="sheet-title"><h2>Bank-Screenshots deaktiviert</h2><button class="close">&times;</button></div><div class="review-box"><strong>Bitte Kontoauszug oder Kontoumsaetze als PDF verwenden</strong><p>Bank-Screenshots werden wegen unzuverlaessiger Betrags- und Haendlererkennung nicht mehr verarbeitet. Kassenbons und Rechnungen als Bild oder PDF funktionieren weiterhin.</p></div>');
@@ -197,6 +198,18 @@ async function showPayPalBatchImport(files){
  const unique=window.dedupePayPalTransactions?window.dedupePayPalTransactions(transactions):transactions;
  if(!unique.length){open('<div class="sheet-title"><h2>Import nicht möglich</h2><button class="close">✕</button></div><div class="review-box"><strong>Keine PayPal-Buchungen erkannt</strong><p>Die ausgewählten Dateien enthielten keine sicher lesbaren PayPal-Aktivitäten.</p></div>');return}
  showPayPalReview(unique);
+}
+async function showSmartImageBatchImport(files){
+ if(files.length>5)return showReceiptBatchImport(files);
+ open('<div class="sheet-title"><h2>Bilder werden gelesen</h2><button class="close">✕</button></div><div class="import-box"><strong id="paypalBatchProgress">0 von '+files.length+' Bildern geprüft</strong><p>Moneybrain prüft zuerst den Bildinhalt auf PayPal-Aktivitäten.</p></div>');
+ const transactions=[];
+ for(let index=0;index<files.length;index++){
+  try{transactions.push(...await window.parsePayPalActivity(files[index],message=>{const progress=content.querySelector('#paypalBatchProgress');if(progress)progress.textContent=(index+1)+' von '+files.length+': '+message}))}catch(error){console.info('Kein PayPal-Screenshot:',files[index].name,error.message)}
+  const progress=content.querySelector('#paypalBatchProgress');if(progress)progress.textContent=(index+1)+' von '+files.length+' Bildern geprüft';
+ }
+ const unique=window.dedupePayPalTransactions?window.dedupePayPalTransactions(transactions):transactions;
+ if(unique.length)return showPayPalReview(unique);
+ showReceiptBatchImport(files);
 }
 function showPayPalReview(transactions){open(`<div class="sheet-title"><h2>PayPal prüfen</h2><button class="close">✕</button></div><p class="subtitle">Korrigiere die erkannten Angaben vor dem Speichern. Abgewählte Buchungen werden nicht übernommen.</p><form class="paypal-review-form" id="paypalReviewForm">${transactions.map((item,index)=>`<fieldset class="paypal-review-card"><label class="paypal-include"><input type="checkbox" name="include-${index}" checked> Buchung übernehmen</label><div class="field"><label>Händler / Sender</label><input name="name-${index}" value="${escapeHtml(item.name)}" required></div><div class="split"><div class="field"><label>Betrag</label><input name="amount-${index}" type="number" min="0.01" step="0.01" value="${Number(item.amount).toFixed(2)}" required></div><div class="field"><label>Art</label><select name="type-${index}"><option value="expense" ${item.type==='expense'?'selected':''}>Ausgabe</option><option value="income" ${item.type==='income'?'selected':''}>Einnahme</option></select></div></div><div class="split"><div class="field"><label>Datum</label><input name="date-${index}" type="date" value="${String(item.date).slice(0,10)}" required></div><div class="field"><label>Zahlungsweg</label><select name="method-${index}">${['PayPal','Girokonto','Kreditkarte','Bar','Sonstiges'].map(method=>`<option ${item.method===method?'selected':''}>${method}</option>`).join('')}</select></div></div><div class="field"><label>Notiz</label><textarea name="note-${index}">${escapeHtml(item.note||'')}</textarea></div></fieldset>`).join('')}<button class="primary" type="submit">Geprüfte Buchungen speichern</button></form>`);content.querySelector('#paypalReviewForm').onsubmit=e=>{e.preventDefault();const form=new FormData(e.currentTarget),reviewed=transactions.flatMap((item,index)=>{if(!form.get(`include-${index}`))return [];const amount=Number(form.get(`amount-${index}`)),date=String(form.get(`date-${index}`)||'');if(!Number.isFinite(amount)||amount<=0||!date)return [];return [{...item,name:cleanStoredPayPalName(form.get(`name-${index}`)),amount,type:String(form.get(`type-${index}`)),date:new Date(`${date}T12:00:00`).toISOString(),method:String(form.get(`method-${index}`)),note:String(form.get(`note-${index}`)||''),source:'PayPal-Nachweis',status:'confirmed'}]});if(!reviewed.length){showToast('Keine Buchung zur Übernahme ausgewählt');return}importPayPalTransactions(reviewed);save();sheet.close();state.route='transactions';state.filter='all';render();showToast(reviewed.length+' PayPal-Buchung(en) geprüft und gespeichert')}}
 function importPayPalTransactions(transactions){

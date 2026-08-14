@@ -69,7 +69,9 @@ function paypalCleanPdfMerchant(value){
 function paypalKnownName(value){return /^(?:zooSky24|McDonalds|Netflix\.com|REWE Markt Moehring OHG|Google Payment Ireland Limited|Monika Tallarek|K4G LTD|waipu\.tv|Sky Deutschland)$/i.test(value)}
 
 function parsePayPalActivityText(text,filename='PayPal'){
- const lines=paypalFold(text).split(/\r?\n/).map(line=>line.replace(/\s+/g,' ').trim()).filter(Boolean),transactions=[];
+ const folded=paypalFold(text);
+ if(!/paypal\.com|deine letzten\s+aktivit(?:ä|a)ten|zahlung im einzugsverfahren|paypal card|geld erhalten|geld gesendet/i.test(folded))throw new Error('Kein PayPal-Nachweis erkannt.');
+ const lines=folded.split(/\r?\n/).map(line=>line.replace(/\s+/g,' ').trim()).filter(Boolean),transactions=[];
  for(let index=0;index<lines.length;index++){
   const line=lines[index],amountMatch=line.match(/([+=\-−–—~])\s*[€$]?\s*(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*(EUR|USD|€|\$)?/i);
   if(!amountMatch)continue;

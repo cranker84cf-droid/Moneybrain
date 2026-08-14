@@ -32,13 +32,20 @@ const app=document.querySelector('#app'),sheet=document.querySelector('#sheet'),
 const inMonth=(t,d=now)=>{const x=new Date(t.date);return x.getMonth()===d.getMonth()&&x.getFullYear()===d.getFullYear()};
 const txs=(date=now)=>state.transactions.filter(t=>inMonth(t,date)).sort((a,b)=>new Date(b.date)-new Date(a.date));
 const total=(items,type)=>items.filter(x=>x.type===type&&!x.amountUncertain).reduce((s,x)=>s+Number(x.amount),0);
+function monthToDateComparison(type){
+ const day=now.getDate(),previous=new Date(now.getFullYear(),now.getMonth()-1,1),lastPreviousDay=new Date(previous.getFullYear(),previous.getMonth()+1,0).getDate(),through=Math.min(day,lastPreviousDay);
+ const previousItems=state.transactions.filter(t=>{const d=new Date(t.date);return d.getFullYear()===previous.getFullYear()&&d.getMonth()===previous.getMonth()&&d.getDate()<=through});
+ const difference=total(txs(),type)-total(previousItems,type),sign=difference>0?'+':difference<0?'−':'±',tone=type==='income'?(difference>=0?'good':'bad'):(difference<=0?'good':'bad');
+ const month=new Intl.DateTimeFormat('de-DE',{month:'long'}).format(previous);
+ return `<small class="comparison ${tone}">${sign}${euro.format(Math.abs(difference))} · 1.–${through}. ${month}</small>`;
+}
 function render(){document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.toggle('active',b.dataset.route===state.route));if(state.route==='home')home();if(state.route==='transactions')transactions();if(state.route==='statistics')statistics();if(state.route==='archive')archive()}
 function home(){const m=txs(),inc=total(m,'income'),exp=total(m,'expense');app.innerHTML=`
- <section class="hero"><span class="eyebrow">Deine Finanzen</span><h1>Hallo, alles im Blick?</h1><p class="subtitle">Hier ist dein Monat auf einen Blick.</p></section>
+ <section class="hero"><h1><span class="hero-name">moneybrain</span><span class="hero-tagline">Deine Finanzen.<br>Alles im Blick.</span></h1><p class="subtitle">Dein ${capitalize(new Intl.DateTimeFormat('de-DE',{month:'long'}).format(now))} – klar, bunt und aufgeräumt.</p></section>
  <div class="month-row"><h2>${capitalize(monthFmt.format(now))}</h2><span class="month-chip">Heute, ${now.getDate()}.</span></div>
  <div class="balance-grid">
-  <button class="balance-card income" data-open-type="income"><span class="card-icon">↙</span><span class="card-label">Einnahmen</span><span class="amount">${euro.format(inc)}</span></button>
-  <button class="balance-card expense" data-open-type="expense"><span class="card-icon">↗</span><span class="card-label">Ausgaben</span><span class="amount">${euro.format(exp)}</span></button>
+  <button class="balance-card income" data-open-type="income"><span class="card-icon">↙</span><span class="card-label">Einnahmen</span><span class="amount">${euro.format(inc)}</span>${monthToDateComparison('income')}</button>
+  <button class="balance-card expense" data-open-type="expense"><span class="card-icon">↗</span><span class="card-label">Ausgaben</span><span class="amount">${euro.format(exp)}</span>${monthToDateComparison('expense')}</button>
  </div>
  <button class="primary" id="newTx"><span>＋</span> Neue Buchung</button>
  <div class="section-title"><h2>Letzte Buchungen</h2><button class="link-button" data-go="transactions">Alle ansehen</button></div>

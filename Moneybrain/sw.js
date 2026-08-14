@@ -1,4 +1,4 @@
-const CACHE='moneybrain-v49',ASSETS=['./','index.html','styles.css','app.js','supabase-config.js','cloud-sync.js','manifest.webmanifest','icon.svg','statement-import.js','vendor/pdf.min.mjs','vendor/pdf.worker.min.mjs','receipt-import.js','paypal-import.js','vendor/tesseract.min.js','vendor/tesseract-worker.min.js'];
+﻿const CACHE='moneybrain-v51',ASSETS=['./','index.html','styles.css','app.js','supabase-config.js','cloud-sync.js','manifest.webmanifest','moneybrain-logo.png','statement-import.js','vendor/pdf.min.mjs','vendor/pdf.worker.min.mjs','receipt-import.js','paypal-import.js','vendor/tesseract.min.js','vendor/tesseract-worker.min.js'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS.map(path=>new Request(path,{cache:'reload'})))).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
@@ -12,3 +12,4 @@ async function receiveShare(request){
 }
 function openDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open('moneybrain-share',1);request.onupgradeneeded=()=>request.result.createObjectStore('inbox',{keyPath:'id',autoIncrement:true});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
 async function writeShared(item){const db=await openDb();return new Promise((resolve,reject)=>{const tx=db.transaction('inbox','readwrite');tx.objectStore('inbox').add({...item,receivedAt:new Date().toISOString()});tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)})}
+

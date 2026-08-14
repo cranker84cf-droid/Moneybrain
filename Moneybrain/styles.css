@@ -20,3 +20,13 @@ main{padding:12px 22px 32px}.eyebrow{color:#44e1ef;font-weight:900;letter-spacin
 .page-head h1,.sheet-title h2,.auth-card h1{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#fff}.filter,.action-card,.paypal-review-card,.detail-list,.month-stat{background:#151a60;border-color:#6473d8;color:#fff}.filter.active{background:linear-gradient(105deg,#ffd22f,#50e9ea);color:#101224;border-color:transparent}.year-summary{background:linear-gradient(110deg,#172c91,#7d21d7);border:1px solid #7180ec}.year-summary small{color:#d9dcf5}.field input,.field select,.field textarea{background:#111552;border-color:#6473d8;color:#fff}.secondary{border-color:#6473d8;color:#fff;background:#151a60}.detail-row{border-bottom-color:#4e58a4}.detail-row.note-row details div{background:#0b0d43}.review-box{background:#4c3263;border:1px solid #ffd13b}.status.ok{background:#174b52;color:#8cf0b9}.status.open{background:#5a3b44;color:#ffd16e}.close{background:#283078;color:#fff}.sheet-handle{background:#727de0}.import-box{border-color:#7180d4;color:#b9bee2}dialog::backdrop{background:#02031bb3}#sheetContent{background:linear-gradient(165deg,#151e82,#0b0d43 56%,#080828)}#toast{background:#ffd13b;color:#11122c}.auth-overlay{background:radial-gradient(circle at 50% 10%,#181cb0,#04051d 65%)}.auth-card{background:linear-gradient(165deg,#151e82,#0b0d43);border:1px solid #7786ff}.cloud-state,.settings-hint{color:#b9bee2}
 @media(min-width:700px){.app-shell{border:1px solid #7786ff;border-radius:44px}.bottom-nav{border-radius:0 0 43px 43px}}
 @media(max-width:370px){.hero h1{font-size:32px}.hero-name{font-size:22px}.amount{font-size:20px}.comparison{font-size:9.5px}.balance-card{padding:14px}}
+
+/* Logo- und Titelkorrektur, Version 52 */
+.topbar{position:relative}
+.top-brand{position:absolute;left:50%;transform:translateX(-50%);white-space:nowrap}
+.brand-dot{display:none!important}
+.hero{text-align:center}
+.hero h1{display:flex;flex-direction:column;align-items:center}
+.hero-name{margin:0 auto 11px;font-size:29px}
+.hero-tagline{font-size:17px;line-height:1.35;letter-spacing:2.1px;text-transform:uppercase;background:linear-gradient(90deg,#ffd12f 0%,#ffca3d 38%,#4be4f1 70%,#a66cff 100%);background-clip:text;-webkit-background-clip:text;color:transparent;-webkit-text-fill-color:transparent;text-shadow:none}
+.hero .subtitle{max-width:330px;margin-inline:auto}

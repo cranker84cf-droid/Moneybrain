@@ -1,5 +1,9 @@
 {
-  "name":"Moneybrain","short_name":"Moneybrain","description":"Einnahmen, Ausgaben und Belege im Blick","start_url":"./","display":"standalone","background_color":"#f6f2e9","theme_color":"#f6f2e9",
-  "icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}],
+  "name":"Moneybrain","short_name":"Moneybrain","description":"Einnahmen, Ausgaben und Belege im Blick","start_url":"./","display":"standalone","background_color":"#040b38","theme_color":"#07145f",
+  "icons":[
+    {"src":"moneybrain-icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"moneybrain-icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+    {"src":"moneybrain-icon-maskable-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
+  ],
   "share_target":{"action":"share-target","method":"POST","enctype":"multipart/form-data","params":{"title":"title","text":"text","url":"url","files":[{"name":"files","accept":["application/pdf","application/x-pdf","application/octet-stream","text/csv","image/*"]}]}}
 }

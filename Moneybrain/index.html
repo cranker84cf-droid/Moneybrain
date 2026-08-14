@@ -3,16 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f6f2e9">
+  <meta name="theme-color" content="#07145f">
   <title>Moneybrain</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.webmanifest?v=52">
+  <link rel="icon" type="image/png" sizes="192x192" href="moneybrain-icon-192.png?v=52">
+  <link rel="apple-touch-icon" href="moneybrain-icon-192.png?v=52">
+  <link rel="stylesheet" href="styles.css?v=52">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <button class="icon-button" id="profileBtn" aria-label="Profil"><span>MB</span></button>
-      <div class="brand"><span class="brand-dot"></span><strong>moneybrain</strong></div>
+      <button class="icon-button profile-logo" id="profileBtn" aria-label="Profil und Cloud-Status"><img src="moneybrain-icon-192.png?v=52" alt=""></button>
+      <div class="brand top-brand" aria-label="Moneybrain"><span>money</span><strong>brain</strong></div>
       <button class="icon-button" id="settingsBtn" aria-label="Einstellungen">⚙</button>
     </header>
 
@@ -32,7 +34,7 @@
   <div id="toast" role="status"></div>
   <section class="auth-overlay" id="authOverlay" hidden>
     <form class="auth-card" id="loginForm">
-      <div class="brand auth-brand"><span class="brand-dot"></span><strong>moneybrain</strong></div>
+      <div class="brand auth-brand"><img src="moneybrain-icon-192.png?v=52" alt=""><span>money</span><strong>brain</strong></div>
       <span class="eyebrow">Geschuetzter Cloud-Speicher</span>
       <h1>Anmelden</h1>
       <p class="subtitle">Melde dich mit deinem persoenlichen Moneybrain-Konto an.</p>

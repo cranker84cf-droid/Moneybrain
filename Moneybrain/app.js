@@ -10,8 +10,10 @@ let state={route:'home',filter:'all',archiveMode:'month',archiveDate:new Date(),
 function save(){
  state.transactions=reconcileAllTransactions(state.transactions);
  const snapshot=cleanStoredTransactions(state.transactions);state.transactions=snapshot;
+ localStorage.setItem('moneybrain.localUpdatedAt',new Date().toISOString());
  try{localStorage.setItem('moneybrain.transactions',JSON.stringify(snapshot))}catch{}
  backupTransactions(snapshot);
+ window.MoneybrainCloud?.queueUpload(snapshot);
 }
 function openMoneybrainDataDb(){return new Promise((resolve,reject)=>{const request=indexedDB.open('moneybrain-data',1);request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('state'))request.result.createObjectStore('state',{keyPath:'key'})};request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
 async function backupTransactions(items){try{const db=await openMoneybrainDataDb();await new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite');tx.objectStore('state').put({key:'transactions',items:cleanStoredTransactions(items),updatedAt:new Date().toISOString()});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});db.close()}catch{}}
@@ -55,6 +57,7 @@ function displayedTransactionNote(t){if(t.bankDate){const base=bankDateNote(t.ty
 function detail(id){const t=state.transactions.find(x=>x.id===id);if(!t)return;const match=state.transactions.find(x=>x.id===t.matchId),shownNote=displayedTransactionNote(t);open(`<div class="sheet-title"><div><span class="eyebrow">${t.type==='income'?'Sender':'Empfänger'}</span><h2>${escapeHtml(t.name)}</h2></div><button class="close">✕</button></div><div class="detail-amount ${t.type==='income'?'in':'out'}">${t.type==='income'?'+':'−'} ${euro.format(t.amount)}</div><div class="detail-list"><div class="detail-row"><span>Datum</span><strong>${formatTransactionDate(t.date,true)}</strong></div><div class="detail-row"><span>Zahlungsweg</span><strong>${escapeHtml(t.method)}</strong></div><div class="detail-row"><span>Quelle</span><strong>${escapeHtml(t.source)}</strong></div><div class="detail-row"><span>Status</span><strong class="status ${t.status==='confirmed'?'ok':'open'}">${t.status==='confirmed'?'Geprüft & bestätigt':'Prüfung nötig'}</strong></div>${shownNote?`<div class="detail-row note-row"><span>Notiz</span><details><summary>Notiz vollständig anzeigen</summary><div>${escapeHtml(shownNote)}</div></details></div>`:''}</div>${match?`<div class="review-box"><strong>Mögliche Doppelbuchung</strong><p>${escapeHtml(match.name)} · ${euro.format(match.amount)} · ${formatTransactionDate(match.date,true)}<br>Datum und Empfänger weichen leicht ab.</p><div class="review-actions"><button class="secondary" id="separate">Verschieden</button><button class="secondary" id="merge">Zusammenführen</button></div></div>`:''}<div class="split" style="margin-top:18px"><button class="secondary" id="edit">Ändern</button><button class="secondary danger" id="delete">Löschen</button></div>`);content.querySelector('#edit').onclick=()=>manualForm(t);content.querySelector('#delete').onclick=()=>{if(confirm('Diese Buchung wirklich löschen?')){state.transactions=state.transactions.filter(x=>x.id!==id);save();sheet.close();render();showToast('Buchung gelöscht')}};content.querySelector('#merge')?.addEventListener('click',()=>{const keep={...t,name:t.name.length<=match.name.length?t.name:match.name,status:'confirmed',matchId:null,note:`Abgeglichen aus ${t.source} und ${match.source}`};state.transactions=state.transactions.filter(x=>x.id!==t.id&&x.id!==match.id);state.transactions.push(keep);save();sheet.close();render();showToast('Doppelbuchung zusammengeführt')});content.querySelector('#separate')?.addEventListener('click',()=>{t.status=match.status='confirmed';t.matchId=match.matchId=null;save();sheet.close();render();showToast('Als getrennte Buchungen bestätigt')})}
 function open(html){content.innerHTML='<div class="sheet-handle"></div>'+html;content.querySelector('.close')?.addEventListener('click',()=>sheet.close());sheet.showModal()}
 document.querySelectorAll('.bottom-nav button').forEach(b=>b.onclick=()=>{state.route=b.dataset.route;render()});
+document.querySelector('#profileBtn').onclick=()=>{const cloud=window.MoneybrainCloud;if(!cloud?.isConfigured()){showToast('Cloud-Speicher noch nicht eingerichtet');return}open(`<div class="sheet-title"><h2>Moneybrain-Konto</h2><button class="close">✕</button></div><div class="detail-list"><div class="detail-row"><span>Cloud-Speicher</span><strong class="status ok" id="cloudStatus">${cloud.isSignedIn()?'Verbunden':'Nicht angemeldet'}</strong></div></div><button class="secondary" style="width:100%" id="logout">Abmelden</button>`);content.querySelector('#logout').onclick=()=>cloud.signOut()};
 document.querySelector('#fileInput').onchange=async e=>{
  const files=[...e.target.files];if(!files.length)return;
  if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}
@@ -69,9 +72,11 @@ function showToast(msg){const t=document.querySelector('#toast');t.textContent=m
 function initials(s){return s.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase()}
 function capitalize(s){return s.charAt(0).toUpperCase()+s.slice(1)}
 function escapeHtml(s=''){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+window.moneybrainGetTransactions=()=>cleanStoredTransactions(state.transactions);
+window.moneybrainApplyCloudTransactions=(items,updatedAt)=>{const restored=cleanStoredTransactions(items);state.transactions=restored;localStorage.setItem('moneybrain.transactions',JSON.stringify(restored));localStorage.setItem('moneybrain.localUpdatedAt',updatedAt||new Date().toISOString());backupTransactions(restored);render()};
+window.render=render;
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
-render();
-restorePersistentTransactions();
+(async()=>{render();await restorePersistentTransactions();await window.MoneybrainCloud?.init()})();
 
 handleSharedLaunch();
 async function handleSharedLaunch(){

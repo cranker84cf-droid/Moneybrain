@@ -28,10 +28,24 @@
   <dialog id="sheet"><div id="sheetContent"></div></dialog>
   <input id="fileInput" type="file" accept=".csv,.pdf,image/*" multiple hidden>
   <div id="toast" role="status"></div>
+  <section class="auth-overlay" id="authOverlay" hidden>
+    <form class="auth-card" id="loginForm">
+      <div class="brand auth-brand"><span class="brand-dot"></span><strong>moneybrain</strong></div>
+      <span class="eyebrow">Geschuetzter Cloud-Speicher</span>
+      <h1>Anmelden</h1>
+      <p class="subtitle">Melde dich mit deinem persoenlichen Moneybrain-Konto an.</p>
+      <div class="field"><label>E-Mail-Adresse</label><input name="email" type="email" autocomplete="username" required></div>
+      <div class="field"><label>Moneybrain-Passwort</label><input name="password" type="password" autocomplete="current-password" required></div>
+      <p class="auth-error" id="authError" role="alert"></p>
+      <button class="primary" type="submit">Sicher anmelden</button>
+    </form>
+  </section>
   <script src="vendor/tesseract.min.js"></script>
   <script src="statement-import.js"></script>
   <script src="receipt-import.js"></script>
   <script src="paypal-import.js"></script>
+  <script src="supabase-config.js"></script>
+  <script src="cloud-sync.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

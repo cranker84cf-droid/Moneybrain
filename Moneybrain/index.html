@@ -21,12 +21,14 @@
     <nav class="bottom-nav" aria-label="Hauptnavigation">
       <button data-route="home" class="active"><span>⌂</span>Übersicht</button>
       <button data-route="transactions"><span>≡</span>Buchungen</button>
+      <button data-route="statistics"><span>▥</span>Statistik</button>
       <button data-route="archive"><span>◷</span>Archiv</button>
     </nav>
   </div>
 
   <dialog id="sheet"><div id="sheetContent"></div></dialog>
   <input id="fileInput" type="file" accept=".csv,.pdf,image/*" multiple hidden>
+  <input id="backupInput" type="file" accept="application/json,.json" hidden>
   <div id="toast" role="status"></div>
   <section class="auth-overlay" id="authOverlay" hidden>
     <form class="auth-card" id="loginForm">

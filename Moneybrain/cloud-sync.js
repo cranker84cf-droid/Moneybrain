@@ -2,7 +2,7 @@
  const config=window.MONEYBRAIN_SUPABASE||{};
  const sessionKey='moneybrain.supabase.session';
  const requestTimeoutMs=12000;
- let session=null,uploadTimer=null,accountUploadTimer=null,syncing=false,accountsSyncing=false;
+ let session=null,uploadTimer=null,accountUploadTimer=null,reconciliationUploadTimer=null,syncing=false,accountsSyncing=false;
 
  function configured(){return /^https:\/\/.+\.supabase\.co$/i.test(config.url||'')&&!String(config.publishableKey||'').startsWith('HIER_')}
  function headers(accessToken,extra={}){return {apikey:config.publishableKey,Authorization:`Bearer ${accessToken||config.publishableKey}`,...extra}}
@@ -28,11 +28,15 @@
  async function login(email,password){const next=await request('/auth/v1/token?grant_type=password',{method:'POST',headers:headers(null,{'Content-Type':'application/json'}),body:JSON.stringify({email,password})});next.expires_at=Math.floor(Date.now()/1000)+Number(next.expires_in||3600);storeSession(next);return next}
  async function cloudRow(){const rows=await request('/rest/v1/moneybrain_data?select=transactions,updated_at',{headers:headers(session.access_token)});return Array.isArray(rows)?rows[0]:null}
  async function cloudAccounts(){return request('/rest/v1/money_accounts?select=id,system_key,name,account_type,opening_balance,confirmed_balance,last_reconciled_at,is_active,include_in_budget,sort_order,created_at,updated_at&order=sort_order.asc',{headers:headers(session.access_token)})}
+ async function cloudReconciliations(){return request('/rest/v1/money_balance_reconciliations?select=id,account_id,calculated_balance,actual_balance,difference,reconciled_at,note,created_at&order=reconciled_at.asc',{headers:headers(session.access_token)})}
  async function upload(items){if(!session||syncing)return;syncing=true;try{const updatedAt=localStorage.getItem('moneybrain.localUpdatedAt')||new Date().toISOString();await request('/rest/v1/moneybrain_data?on_conflict=user_id',{method:'POST',headers:headers(session.access_token,{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify({user_id:session.user.id,transactions:items,updated_at:updatedAt})});setCloudStatus('Gesichert')}catch(error){setCloudStatus('Nicht synchronisiert');console.error(error)}finally{syncing=false}}
  function queueUpload(items){if(!configured()||!session)return;clearTimeout(uploadTimer);uploadTimer=setTimeout(()=>upload(items),500)}
  async function uploadAccounts(items){if(!session||accountsSyncing||!window.MoneybrainAccounts)return;accountsSyncing=true;try{const rows=window.MoneybrainAccounts.exportRows().map(row=>({...row,user_id:session.user.id}));await request('/rest/v1/money_accounts?on_conflict=id',{method:'POST',headers:headers(session.access_token,{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'}),body:JSON.stringify(rows)});setCloudStatus('Gesichert')}catch(error){setCloudStatus('Nicht synchronisiert');console.error(error)}finally{accountsSyncing=false}}
  function queueAccounts(items){if(!configured()||!session)return;clearTimeout(accountUploadTimer);accountUploadTimer=setTimeout(()=>uploadAccounts(items),500)}
- async function synchronizeAccounts(){if(!window.MoneybrainAccounts)return;const rows=await cloudAccounts();if(Array.isArray(rows)&&rows.length)window.MoneybrainAccounts.applyCloudRows(rows);else await uploadAccounts(window.MoneybrainAccounts.all())}
+ async function uploadReconciliation(item){if(!session||!window.MoneybrainAccounts)return;const row={...window.MoneybrainAccounts.toReconciliationRow(item),user_id:session.user.id};await request('/rest/v1/money_balance_reconciliations',{method:'POST',headers:headers(session.access_token,{'Content-Type':'application/json',Prefer:'return=minimal'}),body:JSON.stringify(row)});setCloudStatus('Gesichert')}
+ function queueReconciliation(item){if(!configured()||!session)return;clearTimeout(reconciliationUploadTimer);reconciliationUploadTimer=setTimeout(()=>uploadReconciliation(item).catch(error=>{setCloudStatus('Nicht synchronisiert');console.error(error)}),250)}
+ async function deleteAccount(id){if(!session)return;try{await request('/rest/v1/money_accounts?id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:headers(session.access_token,{Prefer:'return=minimal'})});setCloudStatus('Gesichert')}catch(error){setCloudStatus('Nicht synchronisiert');console.error(error)}}
+ async function synchronizeAccounts(){if(!window.MoneybrainAccounts)return;const [rows,reconciliationRows]=await Promise.all([cloudAccounts(),cloudReconciliations()]);if(Array.isArray(rows)&&rows.length)window.MoneybrainAccounts.applyCloudRows(rows);else await uploadAccounts(window.MoneybrainAccounts.all());window.MoneybrainAccounts.applyCloudReconciliations(reconciliationRows)}
  async function synchronize(){const row=await cloudRow(),local=window.moneybrainGetTransactions(),localStamp=Date.parse(localStorage.getItem('moneybrain.localUpdatedAt')||'')||0,cloudStamp=Date.parse(row?.updated_at||'')||0;if(!row){await upload(local);return}const cloud=Array.isArray(row.transactions)?row.transactions:[];if(local.length&&!cloud.length){await upload(local);return}if(cloud.length&&(!local.length||cloudStamp>localStamp)){window.moneybrainApplyCloudTransactions(cloud,row.updated_at);setCloudStatus('Wiederhergestellt');return}if(localStamp>cloudStamp)await upload(local);else setCloudStatus('Synchronisiert')}
  function setCloudStatus(text){document.querySelectorAll('#cloudStatus').forEach(element=>element.textContent=text)}
  function synchronizeInBackground(){setCloudStatus('Synchronisiere…');Promise.all([synchronize(),synchronizeAccounts()]).catch(error=>{setCloudStatus('Nicht synchronisiert');console.error('Cloud-Synchronisierung fehlgeschlagen',error)})}
@@ -52,10 +56,10 @@
  async function init(){lockApp();if(!configured())return {configured:false};if(!await validSession()){showLogin();return {configured:true,authenticated:false}}unlockApp();window.render?.();synchronizeInBackground();return {configured:true,authenticated:true}}
  async function signOut(){
   const accessToken=session?.access_token||readSession()?.access_token;
-  clearTimeout(uploadTimer);clearTimeout(accountUploadTimer);storeSession(null);lockApp();
+  clearTimeout(uploadTimer);clearTimeout(accountUploadTimer);clearTimeout(reconciliationUploadTimer);storeSession(null);lockApp();
   const dialog=document.querySelector('#sheet');if(dialog?.open)dialog.close();
   showLogin('Du wurdest sicher abgemeldet.');
   if(accessToken){try{await request('/auth/v1/logout',{method:'POST',headers:headers(accessToken)},5000)}catch(error){console.warn('Supabase-Session konnte serverseitig nicht sofort widerrufen werden.',error)}}
  }
- window.MoneybrainCloud={init,queueUpload,queueAccounts,signOut,isConfigured:configured,isSignedIn:()=>Boolean(session)};
+ window.MoneybrainCloud={init,queueUpload,queueAccounts,queueReconciliation,deleteAccount,signOut,isConfigured:configured,isSignedIn:()=>Boolean(session)};
 })();

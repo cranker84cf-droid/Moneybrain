@@ -21,6 +21,7 @@
   const cutoff=new Date(at).getTime(),prior=history(account.id).filter(item=>new Date(item.reconciledAt).getTime()<=cutoff).sort((a,b)=>new Date(b.reconciledAt)-new Date(a.reconciledAt))[0],baseTime=prior?new Date(prior.reconciledAt).getTime():-Infinity;
   let result=prior?number(prior.actualBalance):0;
   for(const transaction of transactions){const time=new Date(transaction.date).getTime();if(transaction.accountId!==account.id||transaction.amountUncertain||time<=baseTime||time>cutoff)continue;result+=transaction.type==='income'?number(transaction.amount):-number(transaction.amount)}
+  result+=window.MoneybrainMovements?.accountDelta(account.id,baseTime===-Infinity?null:new Date(baseTime).toISOString(),new Date(cutoff).toISOString())||0;
   return Math.round((result+Number.EPSILON)*100)/100;
  }
  function balance(account,transactions=[]){return balanceAt(account,transactions)}

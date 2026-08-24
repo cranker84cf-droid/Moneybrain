@@ -54,3 +54,9 @@ main{padding:12px 22px 32px}.eyebrow{color:#44e1ef;font-weight:900;letter-spacin
 
 /* MoneyBrain 2.0 · Phase 5: Kategorien */
 .category-booking-button{width:100%;margin-bottom:10px;text-align:left}
+
+/* Split details must remain readable on the dark sheet background. */
+.transaction-splits .split-entry{color:#f4f6ff}
+.transaction-splits .split-entry strong{color:#f4f6ff}
+.transaction-splits .split-entry>b{color:#dce5ff}
+.transaction-splits .split-entry small{color:#b9c7f4}

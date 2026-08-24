@@ -20,6 +20,7 @@ window.parsePayPalActivity=async function(file,onProgress=()=>{}){
 window.parsePayPalActivityText=parsePayPalActivityText;
 window.parsePayPalPdfText=parsePayPalPdfText;
 window.dedupePayPalTransactions=paypalUnique;
+window.parsePayPalBalanceText=paypalDetectedBalance;
 
 async function paypalPdfText(file,onProgress){
  const pdfjs=await import('./vendor/pdf.min.mjs');
@@ -69,8 +70,8 @@ function paypalCleanPdfMerchant(value){
 function paypalKnownName(value){return /^(?:zooSky24|McDonalds|Netflix\.com|REWE Markt Moehring OHG|Google Payment Ireland Limited|Monika Tallarek|K4G LTD|waipu\.tv|Sky Deutschland)$/i.test(value)}
 
 function parsePayPalActivityText(text,filename='PayPal'){
- const folded=paypalFold(text);
- if(!/paypal\.com|deine letzten\s+aktivit(?:ä|a)ten|zahlung im einzugsverfahren|paypal card|geld erhalten|geld gesendet/i.test(folded))throw new Error('Kein PayPal-Nachweis erkannt.');
+ const folded=paypalFold(text),detectedBalance=paypalDetectedBalance(folded);
+ if(!/paypal\.com|paypal-?guthaben|deine letzten\s+aktivit(?:ä|a)ten|zahlung im einzugsverfahren|paypal card|geld erhalten|geld gesendet/i.test(folded))throw new Error('Kein PayPal-Nachweis erkannt.');
  const lines=folded.split(/\r?\n/).map(line=>line.replace(/\s+/g,' ').trim()).filter(Boolean),transactions=[];
  for(let index=0;index<lines.length;index++){
   const line=lines[index],amountMatch=line.match(/([+=\-−–—~])\s*[€$]?\s*(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*(EUR|USD|€|\$)?/i);
@@ -82,9 +83,11 @@ function parsePayPalActivityText(text,filename='PayPal'){
   const detail=lines.slice(Math.max(0,index-1),index+4).find(value=>/zahlung|geld erhalten|geld gesendet|google pay|paypal card|einzugsverfahren/i.test(value))||'',foreign=/USD|\$/i.test(amountMatch[3]||'');
   transactions.push({id:crypto.randomUUID(),name:paypalCleanMerchant(name),amount,type,date:date.toISOString(),method:'PayPal',status:foreign?'review':'confirmed',source:'PayPal-Nachweis',note:(detail?'PayPal: '+detail:'Aus PayPal-Aktivitäten erkannt')+(foreign?' · Fremdwährung: Betrag bitte in Euro prüfen':''),amountUncertain:foreign,receipt:{filename,recognizedAt:new Date().toISOString()}});
  }
- if(!transactions.length)throw new Error('Keine PayPal-Buchungen mit Datum und Betrag erkannt.');
- return paypalUnique(transactions);
+ if(!transactions.length&&detectedBalance===null)throw new Error('Keine PayPal-Buchungen mit Datum und Betrag erkannt.');
+ const unique=paypalUnique(transactions);unique.detectedBalance=detectedBalance;unique.balanceDetectedAt=paypalEvidenceDate(filename);return unique;
 }
+function paypalDetectedBalance(text){if(!/paypal-?guthaben/i.test(text)||!/verf(?:ü|u)gbares\s+guthaben/i.test(text))return null;const section=text.match(/verf(?:ü|u)gbares\s+guthaben[\s\S]{0,100}?(-?\s*\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*€/i);return section?paypalSignedMoney(section[1]):null}
+function paypalEvidenceDate(filename){const match=String(filename||'').match(/(20\d{2})(\d{2})(\d{2})[_-]?(\d{2})?(\d{2})?(\d{2})?/);return match?new Date(Number(match[1]),Number(match[2])-1,Number(match[3]),Number(match[4]||12),Number(match[5]||0),Number(match[6]||0)).toISOString():new Date().toISOString()}
 function paypalUnique(items){return items.filter((item,index,all)=>all.findIndex(other=>(item.externalId&&other.externalId===item.externalId)||(other.type===item.type&&other.amount===item.amount&&other.date.slice(0,10)===item.date.slice(0,10)&&paypalKey(other.name)===paypalKey(item.name)))===index)}
 function paypalPdfNoise(line){return /^(?:H(?:ä|a)ndlerkonto-ID|PayPal-ID|Transaktions(?:ü|u)bersicht|Datum Typ Name|Hinweis:|Copyright|Boulevard Royal|Seite \d+ von|\d{2}\.\d{2}\.\d{2}\s*[-–])/i.test(line)}
 function paypalFold(value){return String(value||'').replace(/\u00ad/g,'').replace(/Ã¼/g,'ü').replace(/Ã¤/g,'ä').replace(/Ã¶/g,'ö').replace(/ÃŸ/g,'ß').replace(/â‚¬/g,'€').replace(/âˆ’|â€“/g,'−')}

@@ -51,3 +51,6 @@ main{padding:12px 22px 32px}.eyebrow{color:#44e1ef;font-weight:900;letter-spacin
 
 /* MoneyBrain 2.0 · Phase 4: Bankimport */
 .bank-import-history{align-items:center}.bank-import-history span strong,.bank-import-history span small{display:block}.bank-import-history .secondary{padding:9px;flex:0 0 auto}
+
+/* MoneyBrain 2.0 · Phase 5: Kategorien */
+.category-booking-button{width:100%;margin-bottom:10px;text-align:left}

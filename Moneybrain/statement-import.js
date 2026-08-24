@@ -16,7 +16,7 @@ window.parseDeutscheBankStatement=async function(file){
   for(const row of rows){row.items.sort((a,b)=>a.x-b.x);lines.push(row.items.map(x=>x.text).join(' ').replace(/\s+/g,' ').trim())}
  }
  const full=lines.join('\n');
- if(/Gebuchte\s*Ums/i.test(full)&&/Beg(?:u|\u00fc)nstigter\/Auftraggeber/i.test(full))return parseBookedTransactionsExport(lines,pdf.numPages);
+ if(/Gebuchte\s*Ums/i.test(full)&&/Beg(?:u|\u00fc)nstigter\/Auftraggeber/i.test(full))return parseBookedTransactionsExport(lines,pdf.numPages,full);
  const yearMatch=full.match(/Kontoauszug vom[^\n]*?(20\d{2})/),year=Number(yearMatch?.[1]||new Date().getFullYear());
  const header=/^(\d{2})\.(\d{2})\s*\.\s+(\d{2})\.(\d{2})\s*\.\s+(.+?)\s+([+-])\s+([\d.]+,\d{2})$/;
  const blocks=[];let current=null;
@@ -34,14 +34,15 @@ window.parseDeutscheBankStatement=async function(file){
   const cashMatch=/Auszahlung/i.test(detailText)?detailText.match(/([\d.]+)\s*,\s*(\d{2})\s*EUR/i):null;
   const cashAmount=cashMatch?Number(cashMatch[1].replace(/\./g,'')+'.'+cashMatch[2]):0;
   const cashOnly=!/Kartenzahlung/i.test(bookingKind)&&(/\bGA\s+NR\d+/i.test(detailText)||/Bargeld(?:auszahlung|einzahlung)|(?:Auszahlung|Einzahlung)\s+am\s+Geldautomaten/i.test(bookingKind+' '+detailText));
-  if(cashOnly){cashMovements++;cashExcluded+=amount;return null}
-  if(cashAmount){cashMovements++;cashExcluded+=cashAmount;amount=Math.max(0,amount-cashAmount)}
+  if(cashOnly){cashMovements++;cashExcluded+=amount}
+  if(cashAmount){cashMovements++;cashExcluded+=cashAmount}
   if(amount<0.005)return null;
   return {id:crypto.randomUUID(),name:party,amount:Math.round(amount*100)/100,type:sign==='+'?'income':'expense',date:new Date(year,Number(month)-1,Number(day),12).toISOString(),valueDate:new Date(year,Number(valueMonth)-1,Number(valueDay),12).toISOString(),method:/Kartenzahlung/i.test(bookingKind)?'Girokarte':'Girokonto',status:'confirmed',source:'Kontoauszug',note:statementNote(details,bookingKind),importOrder:index};
  }).filter(Boolean);
  if(!transactions.length)throw new Error('Keine Buchungszeilen erkannt');
- return {transactions,pages:pdf.numPages,year,income:sum(transactions,'income'),expense:sum(transactions,'expense'),cashMovements,cashExcluded:Math.round(cashExcluded*100)/100};
+ return {transactions,pages:pdf.numPages,year,income:sum(transactions,'income'),expense:sum(transactions,'expense'),cashMovements,cashExcluded:Math.round(cashExcluded*100)/100,...statementBalance(full,year)};
 };
+function statementBalance(text,year){const matches=[...String(text).matchAll(/(?:Kontostand|Neuer\s+Saldo|Saldo)(?:\s+(?:am|zum|per))?\s*(?:(\d{2})\.(\d{2})\.(20\d{2}))?[^\n]{0,50}?([+-]?)\s*([\d.]+,\d{2})\s*(?:EUR|€)/gi)],match=matches.at(-1);if(!match)return {balance:null,balanceDate:null};const amount=Number(match[5].replace(/\./g,'').replace(',','.'))*(match[4]==='-'?-1:1),balanceYear=Number(match[3]||year);return {balance:Math.round(amount*100)/100,balanceDate:match[1]?new Date(balanceYear,Number(match[2])-1,Number(match[1]),23,59,59).toISOString():null}}
 function sum(items,type){return items.filter(x=>x.type===type).reduce((total,x)=>total+x.amount,0)}
 function statementNote(details,kind){const lines=[kind,...details.slice(0,8)].map(line=>String(line).replace(/^\d{4}\s+\d{4}\s+/,'').replace(/Verwendungszweck\s*\/\s*Kundenreferenz/ig,'').replace(/\s+/g,' ').trim()).filter(line=>line&&!/^(Buchung Valuta|Auszug Seite|IBAN|BIC)$/i.test(line));return [...new Set(lines)].join('\n')}
 function findParty(details,kind){
@@ -92,7 +93,7 @@ function normalizeParty(value,kind,details=''){
  if(/Saldo\s+der\s+Abschlussposten/i.test(value))return 'Kontof\u00fchrung';
  return value.replace(/\s*(?:SAGT DANKE|\d{2}-\d{2}-\d{4}|T?\d{1,2}:\d{2}:\d{2}).*$/i,'').trim().slice(0,90)||kind;
 }
-function parseBookedTransactionsExport(lines,pages){
+function parseBookedTransactionsExport(lines,pages,full=''){
  const header=/^(\d{2})\.(\d{2})\.(20\d{2})\s+(\d{2})\.(\d{2})\.(20\d{2})\s+(.+?)\s+(-?[\d.]+,\d{2})\s+EUR$/i;
  const blocks=[];let current=null;
  for(const line of lines){const match=String(line).match(header);if(match){if(current)blocks.push(current);current={match,details:[]}}else if(current)current.details.push(String(line))}
@@ -102,13 +103,13 @@ function parseBookedTransactionsExport(lines,pages){
   const [,day,month,year,valueDay,valueMonth,valueYear,bookingKind,rawSigned]=match;
   const signed=Number(rawSigned.replace(/\./g,'').replace(',','.')),amount=Math.abs(signed),detailText=details.slice(0,12).join(' ');
   const cashOnly=/Bargeld(?:auszahlung|einzahlung)|Geldautomat/i.test(bookingKind+' '+detailText);
-  if(cashOnly){cashMovements++;cashExcluded+=amount;return null}
+  if(cashOnly){cashMovements++;cashExcluded+=amount}
   if(amount<0.005)return null;
   const type=signed<0?'expense':'income',party=bookedExportParty(details,bookingKind);
   return {id:crypto.randomUUID(),name:party,amount:Math.round(amount*100)/100,type,date:new Date(Number(year),Number(month)-1,Number(day),12).toISOString(),valueDate:new Date(Number(valueYear),Number(valueMonth)-1,Number(valueDay),12).toISOString(),method:/Kartenzahlung/i.test(bookingKind)?'Girokarte':'Girokonto',status:'confirmed',source:'Kontoauszug',note:statementNote(details,bookingKind),importOrder:index};
  }).filter(Boolean);
  if(!transactions.length)throw new Error('Keine Buchungszeilen erkannt');
- return {transactions,pages,year:transactions.length?new Date(transactions[0].date).getFullYear():new Date().getFullYear(),income:sum(transactions,'income'),expense:sum(transactions,'expense'),cashMovements,cashExcluded:Math.round(cashExcluded*100)/100};
+ const year=transactions.length?new Date(transactions[0].date).getFullYear():new Date().getFullYear();return {transactions,pages,year,income:sum(transactions,'income'),expense:sum(transactions,'expense'),cashMovements,cashExcluded:Math.round(cashExcluded*100)/100,...statementBalance(full,year)};
 }
 function bookedExportParty(details,bookingKind){
  const clean=details.map(value=>String(value).replace(/\s+/g,' ').trim()).filter(Boolean),joined=clean.join(' ');

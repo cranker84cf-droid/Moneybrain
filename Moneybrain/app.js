@@ -174,7 +174,7 @@ document.querySelector('#fileInput').onchange=async e=>{
  const files=[...e.target.files],importMode=e.target.dataset.importMode;delete e.target.dataset.importMode;e.target.multiple=true;if(!files.length)return;
  if(importMode==='paypal'){e.target.value='';if(files.length>5){showToast('Bitte höchstens 5 PayPal-Screenshots auswählen');return}return showPayPalBatchImport(files)}
  if(files.every(f=>f.name.toLowerCase().endsWith('.csv'))){for(const file of files)await importCsv(file);sheet.close();render();showToast(`${files.length} CSV-Datei(en) importiert`)}
- else if(files.length>1){isBankScreenshotBatch(files)?showBankScreenshotDisabled():(files.every(isImageFile)?showSmartImageBatchImport(files):(files.every(isPayPalEvidenceFile)?showPayPalBatchImport(files):showReceiptBatchImport(files)))}
+ else if(files.length>1){isBankScreenshotBatch(files)?showBankScreenshotDisabled():(files.every(isPayPalEvidenceFile)?showPayPalBatchImport(files):showReceiptBatchImport(files))}
  else{open(`<div class="sheet-title"><h2>Import pr?fen</h2><button class="close">&times;</button></div><div class="import-box"><strong>1 Datei bereit</strong><p>${escapeHtml(files[0].name)}</p></div><button class="primary" id="createFromFile">Datei pr?fen</button>`);content.querySelector('#createFromFile').onclick=()=>showDocumentImport(files[0])}
  e.target.value='';
 };
@@ -290,8 +290,6 @@ async function showDocumentImport(file){
  if(/kontoauszug|kontoumsa(?:e|\u00e4)tze/i.test(file.name))return showStatementOnly(file);
  if(isBankScreenshotFile(file))return showBankScreenshotDisabled();
  if(isPayPalEvidenceFile(file))return showPayPalImport(file);
- if(file.type==='application/pdf'||/\.pdf$/i.test(file.name)){try{const transactions=await window.parsePayPalActivity(file,()=>{});return showPayPalBalanceReview(transactions)}catch(error){if(!/kein PayPal-Aktivit/i.test(error.message)&&!/kein PayPal-Aktiv/i.test(error.message)&&!/kein PayPal/i.test(error.message))console.warn(error)}}
- if(String(file.type||'').startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(file.name)){try{const transactions=await window.parsePayPalActivity(file,()=>{});return showPayPalBalanceReview(transactions)}catch(error){console.info('Kein PayPal-Screenshot, Belegerkennung wird verwendet:',error.message)}}
  return showReceiptImport(file);
 }
 async function showPayPalImport(file){

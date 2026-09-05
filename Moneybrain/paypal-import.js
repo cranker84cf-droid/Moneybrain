@@ -9,7 +9,7 @@ window.parsePayPalActivity=async function(file,onProgress=()=>{}){
  if(!file?.type?.startsWith('image/'))throw new Error('PayPal-Nachweise bitte als PDF oder Screenshot importieren.');
  if(!window.Tesseract)throw new Error('Die Bilderkennung ist nicht geladen.');
  onProgress('PayPal-Nachweis wird vorbereitet ...');
- const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,logger:m=>{if(m.status==='recognizing text')onProgress('PayPal wird gelesen: '+Math.round((m.progress||0)*100)+' %')}});
+ const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,corePath:new URL('./vendor/tesseract-core/tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./vendor/tessdata',location.href).href,gzip:true,logger:m=>{if(m.status==='recognizing text')onProgress('PayPal wird gelesen: '+Math.round((m.progress||0)*100)+' %')}});
  try{
   await worker.setParameters({tessedit_pageseg_mode:'11',preserve_interword_spaces:'1'});
   text=(await worker.recognize(file)).data.text||'';

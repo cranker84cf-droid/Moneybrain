@@ -6,7 +6,7 @@ window.parseRetailReceipt=async function(file,onProgress=()=>{}){
  }else if(String(file.type||'').startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(String(file.name||''))){
  if(!window.Tesseract)throw new Error('Die Bilderkennung ist nicht geladen.');
   onProgress('Bilderkennung wird vorbereitet …');
-  const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,logger:m=>{if(m.status==='recognizing text')onProgress('Beleg wird gelesen: '+Math.round((m.progress||0)*100)+' %')}});
+  const worker=await Tesseract.createWorker('deu',1,receiptOcrOptions(m=>{if(m.status==='recognizing text')onProgress('Beleg wird gelesen: '+Math.round((m.progress||0)*100)+' %')}));
   try{const prepared=await prepareReceiptPhoto(file,onProgress),result=await worker.recognize(prepared);text=result.data.text||''}finally{await worker.terminate()}
  }else throw new Error('Dateityp nicht unterstützt.');
  return parseReceiptText(text,file.name);
@@ -32,7 +32,7 @@ async function receiptPdfText(file,onProgress=()=>{}){
  if(extracted.replace(/\s/g,'').length>=40)return extracted;
  if(!window.Tesseract)throw new Error('Die PDF enthält nur Bilder und die Bilderkennung ist nicht geladen.');
  onProgress('Bild-PDF wird für die Erkennung vorbereitet …');
- const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,logger:m=>{if(m.status==='recognizing text')onProgress('PDF-Beleg wird gelesen: '+Math.round((m.progress||0)*100)+' %')}}),ocr=[];
+ const worker=await Tesseract.createWorker('deu',1,receiptOcrOptions(m=>{if(m.status==='recognizing text')onProgress('PDF-Beleg wird gelesen: '+Math.round((m.progress||0)*100)+' %')})),ocr=[];
  try{
   for(let n=1;n<=Math.min(pdf.numPages,8);n++){
    onProgress('PDF-Seite '+n+' von '+pdf.numPages+' wird gelesen …');
@@ -68,13 +68,14 @@ function receiptMerchant(text,filename){
  return 'Einzelhandel';
 }
 function receiptAmount(text,merchant){
- const finalTotal=[...text.matchAll(/Endsumme(?:\s+in)?(?:\s+(?:\(cid:\d+\)|EUR|\u20ac))?\s*(\d+[.,]\d{2})/ig)];if(finalTotal.length)return money(finalTotal.at(-1)[1]);
- const patterns=merchant==='Lidl'?[/zu\s+zahlen[^\d]*(\d+[.,]\d{2})/ig]:merchant==='Decathlon'?[/Rechnungsbetrag[^\d]*(\d+[.,]\d{2})/ig,/Gesamt[^\d]*(\d+[.,]\d{2})/ig]:[/(?:ZU\s*ZAHLEN|GESAMTSUMME|GESAMTBETRAG|ENDSUMME|ENDBETRAG|ZAHLBETRAG|TOTAL)[^\d]*(\d+[.,]\d{2})/ig,/SUMME[^\n]*?(\d+[.,]\d{2})/ig];
- for(const pattern of patterns){const found=[...text.matchAll(pattern)];if(found.length)return money(found.at(-1)[1])}
+ const finalTotal=[...text.matchAll(/Endsumme(?:\s+in)?(?:\s+(?:\(cid:\d+\)|EUR|\u20ac))?\s*(\d+[.,]\d{2})/ig)];if(finalTotal.length)return receiptMoney(finalTotal.at(-1)[1]);
+ const patterns=merchant==='Lidl'?[/zu\s+zahlen[^\d]*(\d+[.,]\d{2})/ig]:merchant==='Decathlon'?[/Rechnungsbetrag[^\d]*(\d+[.,]\d{2})/ig,/Gesamt[^\d]*(\d+[.,]\d{2})/ig]:[/(?:ZU\s*ZAHLEN|GESAMTSUMME|GESAMTBETRAG|ENDSUMME|ENDBETRAG|ZAHLBETRAG)[^\d]*(\d+[.,]\d{2})/ig,/SUMME[^\n]*?(\d+[.,]\d{2})/ig];
+ for(const pattern of patterns){const found=[...text.matchAll(pattern)];if(found.length)return receiptMoney(found.at(-1)[1])}
+ const totalLines=[...text.matchAll(/^.*\bTotal\b.*$/gim)];for(const line of totalLines.reverse()){const amounts=[...line[0].matchAll(/\d+[.,]\d{2}/g)];if(amounts.length)return receiptMoney(amounts.at(-1)[0])}
  const paid=[...text.matchAll(/(?:Betrag|Karte|Kartenzahlung|Paypal)\s*(?:EUR|€)?\s*(\d+[.,]\d{2})/ig)];
  if(!paid.length)return 0;
- let value=money(paid.at(-1)[1]),cash=[...text.matchAll(/Bargeldauszahlung\s*-?\s*(\d+[.,]\d{2})/ig)];
- if(cash.length)value-=money(cash.at(-1)[1]);
+ let value=receiptMoney(paid.at(-1)[1]),cash=[...text.matchAll(/Bargeldauszahlung\s*-?\s*(\d+[.,]\d{2})/ig)];
+ if(cash.length)value-=receiptMoney(cash.at(-1)[1]);
  return Math.round(value*100)/100;
 }
 function receiptDate(text,filename){
@@ -84,5 +85,6 @@ function receiptDate(text,filename){
  const f=filename.match(/(20\d{2})(\d{2})(\d{2})/);return f?new Date(Number(f[1]),Number(f[2])-1,Number(f[3]),12):null;
 }
 function receiptMethod(text){if(/Paypal/i.test(text))return 'PayPal';if(/Mastercard|Visa|Girocard|EC-Cash|Kartenzahlung|Zahlung\s+MasterCard/i.test(text))return 'Girokarte';if(/\bBar\s+(?:EUR\s*)?\d+[.,]\d{2}|Barzahlung|R(?:ü|u|ue)ckgeld/i.test(text))return 'Bar';return 'Sonstiges'}
-function money(value){const raw=String(value).replace(/\s/g,'');const comma=raw.lastIndexOf(','),dot=raw.lastIndexOf('.'),separator=Math.max(comma,dot);if(separator<0)return Number(raw.replace(/\D/g,''));const whole=raw.slice(0,separator).replace(/\D/g,''),fraction=raw.slice(separator+1).replace(/\D/g,'').slice(0,2);return Number(whole+'.'+fraction)}
+function receiptMoney(value){const raw=String(value).replace(/\s/g,'');const comma=raw.lastIndexOf(','),dot=raw.lastIndexOf('.'),separator=Math.max(comma,dot);if(separator<0)return Number(raw.replace(/\D/g,''));const whole=raw.slice(0,separator).replace(/\D/g,''),fraction=raw.slice(separator+1).replace(/\D/g,'').slice(0,2);return Number(whole+'.'+fraction)}
+function receiptOcrOptions(logger){return {workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,corePath:new URL('./vendor/tesseract-core/tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./vendor/tessdata',location.href).href,gzip:true,logger}}
 window.parseRetailReceiptText=parseReceiptText;

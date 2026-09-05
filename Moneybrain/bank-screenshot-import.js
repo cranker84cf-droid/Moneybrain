@@ -1,7 +1,7 @@
 window.parseBankScreenshots=async function(files,onProgress=()=>{}){
  if(!files?.length)throw new Error('Keine Screenshots ausgewählt.');
  if(!window.Tesseract)throw new Error('Die Bilderkennung ist nicht geladen.');
- const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,logger:m=>{if(m.status==='recognizing text')onProgress('Konto-Screenshot wird gelesen: '+Math.round((m.progress||0)*100)+' %')}});
+ const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,corePath:new URL('./vendor/tesseract-core/tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./vendor/tessdata',location.href).href,gzip:true,logger:m=>{if(m.status==='recognizing text')onProgress('Konto-Screenshot wird gelesen: '+Math.round((m.progress||0)*100)+' %')}});
  const transactions=[],ordered=[...files].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));let bankDate=null;
  try{
   for(let fileIndex=0;fileIndex<ordered.length;fileIndex++){

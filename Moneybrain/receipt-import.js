@@ -44,9 +44,9 @@ async function receiptPdfText(file,onProgress=()=>{}){
 }
 function parseReceiptText(text,filename){
  const compact=text.replace(/\u0000/g,' ').replace(/[ \t]+/g,' '),merchant=receiptMerchant(compact,filename);
- const amount=receiptAmount(compact,merchant),date=receiptDate(compact,filename),method=receiptMethod(compact);
+ const detectedAmount=receiptAmount(compact,merchant),cashWithdrawal=receiptCashWithdrawal(compact),purchaseAmount=cashWithdrawal?receiptPurchaseAmount(compact)||Math.max(0,detectedAmount-cashWithdrawal):detectedAmount,amount=cashWithdrawal?Math.round((purchaseAmount+cashWithdrawal+Number.EPSILON)*100)/100:detectedAmount,date=receiptDate(compact,filename),method=receiptMethod(compact);
  if(!amount||!date)throw new Error('Betrag oder Datum konnten nicht sicher erkannt werden.');
- return {id:crypto.randomUUID(),name:merchant,amount,type:'expense',date:date.toISOString(),method,status:'confirmed',source:'Kassenbon',note:'Automatisch aus Beleg erkannt',receipt:{filename,recognizedAt:new Date().toISOString()}};
+ return {id:crypto.randomUUID(),name:merchant,amount,type:'expense',date:date.toISOString(),method,status:'confirmed',source:'Kassenbon',note:cashWithdrawal?'Einkauf mit Bargeldauszahlung':'Automatisch aus Beleg erkannt',...(cashWithdrawal?{purchaseAmount,cashWithdrawal}:{}),receipt:{filename,recognizedAt:new Date().toISOString()}};
 }
 function receiptMerchant(text,filename){
  const s=text+' '+filename;
@@ -78,6 +78,8 @@ function receiptAmount(text,merchant){
  if(cash.length)value-=receiptMoney(cash.at(-1)[1]);
  return Math.round(value*100)/100;
 }
+function receiptCashWithdrawal(text){const matches=[...text.matchAll(/(?:[BD]ar(?:ge[l1](?:d|1d))?[-\s]?Auszahlung|Barauszahlung)[^\d-]*-?\s*(?:EUR|€)?\s*(\d+[.,]\d{2})/ig)];return matches.length?receiptMoney(matches[0][1]):0}
+function receiptPurchaseAmount(text){const patterns=[/Zahlbetrag\s*:?[\s\S]{0,24}?(\d+[.,]\d{2})/ig,/ZU\s*ZAHLEN[^\d]*(\d+[.,]\d{2})/ig];for(const pattern of patterns){const matches=[...text.matchAll(pattern)];if(matches.length)return receiptMoney(matches[0][1])}const sums=[...text.matchAll(/SUMME[^\n]*?(\d+[.,]\d{2})/ig)].map(match=>receiptMoney(match[1]));return sums.length?Math.min(...sums):0}
 function receiptDate(text,filename){
  const iso=text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);if(iso)return new Date(Number(iso[1]),Number(iso[2])-1,Number(iso[3]),12);
  const patterns=[/Datum\s*:?[ ]*(\d{1,2})[./](\d{1,2})[./](\d{2,4})/i,/Kasse[^\n]*?(\d{1,2})[./](\d{1,2})[./](\d{2,4})/i,/Rechnungsdatum\s+(\d{1,2})[./](\d{1,2})[./](\d{2,4})/i,/(\d{1,2})[./](\d{1,2})[./](20\d{2})/];

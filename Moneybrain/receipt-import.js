@@ -78,7 +78,7 @@ function receiptAmount(text,merchant){
  if(cash.length)value-=receiptMoney(cash.at(-1)[1]);
  return Math.round(value*100)/100;
 }
-function receiptCashWithdrawal(text){const matches=[...text.matchAll(/(?:[BD]ar(?:ge[l1](?:d|1d))?[-\s]?Auszahlung|Barauszahlung)[^\d-]*-?\s*(?:EUR|€)?\s*(\d+[.,]\d{2})/ig)];return matches.length?receiptMoney(matches[0][1]):0}
+function receiptCashWithdrawal(text){const label='(?:[BD]ar(?:ge[l1](?:d|1d))?[-\\s]?Auszahlung|Barauszahlung|Auszahlung|Cashback)',currency=[...text.matchAll(new RegExp(label+'[\\s\\S]{0,80}?(?:EUR|€)\\s*-?\\s*(\\d+[.,]\\d{2})','ig'))];if(currency.length)return receiptMoney(currency[0][1]);const sameLine=[...text.matchAll(new RegExp(label+'[^\\n]*?(\\d+[.,]\\d{2})','ig'))];return sameLine.length?receiptMoney(sameLine[0][1]):0}
 function receiptPurchaseAmount(text){const patterns=[/Zahlbetrag\s*:?[\s\S]{0,24}?(\d+[.,]\d{2})/ig,/ZU\s*ZAHLEN[^\d]*(\d+[.,]\d{2})/ig];for(const pattern of patterns){const matches=[...text.matchAll(pattern)];if(matches.length)return receiptMoney(matches[0][1])}const sums=[...text.matchAll(/SUMME[^\n]*?(\d+[.,]\d{2})/ig)].map(match=>receiptMoney(match[1]));return sums.length?Math.min(...sums):0}
 function receiptDate(text,filename){
  const iso=text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);if(iso)return new Date(Number(iso[1]),Number(iso[2])-1,Number(iso[3]),12);

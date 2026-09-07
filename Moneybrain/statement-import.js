@@ -73,6 +73,7 @@ function cardMerchant(lines,fallback){
 }
 function normalizeParty(value,kind,details=''){
  value=value.replace(/\s+/g,' ').trim().replace(/^\/\s*(?:\d{4}\s+\d{4}\s+)?/,'').replace(/^Vielen Dank\s+/i,'');
+ if(/HUK[\s-]*COBURG/i.test(value+' '+details))return 'HUK-Coburg';
  if(/PayPal/i.test(value))return 'PayPal';
  if(/REWE/i.test(value))return 'Rewe GmbH';
  if(/Mc\s*Donalds?|MCDONALD/i.test(value))return 'McDonalds';
@@ -113,9 +114,11 @@ function parseBookedTransactionsExport(lines,pages,full=''){
 }
 function bookedExportParty(details,bookingKind){
  const clean=details.map(value=>String(value).replace(/\s+/g,' ').trim()).filter(Boolean),joined=clean.join(' ');
- const purposeStart=clean.findIndex(line=>/^Verwendungszweck/i.test(line)),beneficiaryIndex=clean.findIndex(line=>/^Beg(?:u|\u00fc)nstigter\/Auftraggeber/i.test(line));
+ const beneficiaryLabel=/^Beg(?:u|\u00fc)nstigter\s*\/\s*Auftraggeber\s*:?[\s]*/i;
+ const purposeStart=clean.findIndex(line=>/^Verwendungszweck/i.test(line)),beneficiaryIndex=clean.findIndex(line=>beneficiaryLabel.test(line));
  const purpose=(purposeStart>=0?clean.slice(purposeStart,beneficiaryIndex>purposeStart?beneficiaryIndex:purposeStart+3).join(' '):'').replace(/^Verwendungszweck\s*/i,'');
- const beneficiary=beneficiaryIndex>=0?clean[beneficiaryIndex].replace(/^Beg(?:u|\u00fc)nstigter\/Auftraggeber\s*/i,''):'';
+ const beneficiary=beneficiaryIndex>=0?clean[beneficiaryIndex].replace(beneficiaryLabel,''):'';
+ if(/HUK[\s-]*COBURG/i.test(joined))return 'HUK-Coburg';
  if(/PayPal/i.test(beneficiary)){
   const merchant=purpose.match(/Ihr\s*Einkauf\s*bei\s*(.+?)(?:\s+Beg|$)/i)||purpose.match(/PP\.[^/]*\/\.\s*([^,]+)/i);
   if(merchant?.[1])return normalizeParty(merchant[1],bookingKind,purpose);

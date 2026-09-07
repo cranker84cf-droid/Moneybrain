@@ -13,6 +13,7 @@ window.parsePayPalActivity=async function(file,onProgress=()=>{}){
  try{
   await worker.setParameters({tessedit_pageseg_mode:'11',preserve_interword_spaces:'1'});
   text=(await worker.recognize(file)).data.text||'';
+  if(paypalDetectedBalance(paypalFold(text))===null){onProgress('PayPal-Guthaben wird nochmals geprüft ...');await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1'});text+='\n'+((await worker.recognize(file)).data.text||'')}
  }finally{await worker.terminate()}
  return parsePayPalActivityText(text,file.name);
 };
@@ -72,9 +73,9 @@ function paypalKnownName(value){return /^(?:zooSky24|McDonalds|Netflix\.com|REWE
 function parsePayPalActivityText(text,filename='PayPal'){
  const folded=paypalFold(text),detectedBalance=paypalDetectedBalance(folded);
  if(!/paypal\.com|paypal-?guthaben|deine letzten\s+aktivit(?:ä|a)ten|zahlung im einzugsverfahren|paypal card|geld erhalten|geld gesendet|bezahlt mit[\s\S]{0,100}(?:bank|kreditkarte)/i.test(folded)&&!/paypal/i.test(filename))throw new Error('Kein PayPal-Nachweis erkannt.');
- const lines=folded.split(/\r?\n/).map(line=>line.replace(/\s+/g,' ').trim()).filter(Boolean),transactions=[];
+ const lines=folded.split(/\r?\n/).map(line=>line.replace(/\s+/g,' ').trim()).filter(Boolean),activityStart=lines.findIndex(line=>/letzte\s+aktivit(?:ä|a)ten/i.test(line)),transactions=[];
  for(let index=0;index<lines.length;index++){
-  const line=lines[index],amountMatch=line.match(/([+=\-−–—~])\s*[€$]?\s*(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*(EUR|USD|€|\$)?/i);
+  const originalLine=lines[index],unsignedActivity=index>activityStart&&activityStart>=0&&!/[+=\-−–—~]\s*[€$]?\s*\d/.test(originalLine)&&/\d{1,3}(?:[.\s]\d{3})*[,.]\d{2}\s*(?:EUR|USD|€|\$)/i.test(originalLine),line=unsignedActivity?originalLine.replace(/(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2}\s*(?:EUR|USD|€|\$))/i,'- $1'):originalLine,amountMatch=line.match(/([+=\-−–—~])\s*[€$]?\s*(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*(EUR|USD|€|\$)?/i);
   if(!amountMatch)continue;
   const amount=paypalMoney(amountMatch[2]);if(!Number.isFinite(amount)||amount<=0)continue;
   const context=lines.slice(Math.max(0,index-9),Math.min(lines.length,index+10)).join(' '),type=/\+/.test(amountMatch[1])||/geld erhalten/i.test(context)?'income':'expense';
@@ -87,7 +88,7 @@ function parsePayPalActivityText(text,filename='PayPal'){
  if(!transactions.length&&detectedBalance===null)throw new Error('Keine PayPal-Buchungen mit Datum und Betrag erkannt.');
  if(transactions.length===1){const sources=paypalFundingSources(folded,transactions[0].amount);if(sources.length)transactions[0].paymentSources=sources}const unique=paypalUnique(transactions);unique.detectedBalance=detectedBalance;unique.balanceDetectedAt=paypalEvidenceDate(filename);return unique;
 }
-function paypalDetectedBalance(text){if(!/paypal-?guthaben/i.test(text))return null;const availableFirst=text.match(/verf(?:ü|u)gbares\s+guthaben[\s\S]{0,100}?(-?\s*\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*€/i),availableAfter=text.match(/paypal-?guthaben[\s\S]{0,80}?(-?\s*\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*€[\s\S]{0,40}?verf(?:ü|u)gbar/i),section=availableFirst||availableAfter;return section?paypalSignedMoney(section[1]):null}
+function paypalDetectedBalance(text){if(!/paypal-?guthaben/i.test(text))return null;const availableFirst=text.match(/verf(?:ü|u)gbares\s+guthaben[\s\S]{0,140}?(-?\s*\d{1,4}(?:[.\s]\d{3})*[,.]\d{2})(?:\s*(?:€|EUR))?/i),availableAfter=text.match(/paypal-?guthaben[\s\S]{0,100}?(-?\s*\d{1,4}(?:[.\s]\d{3})*[,.]\d{2})(?:\s*(?:€|EUR))?[\s\S]{0,60}?verf(?:ü|u)gbar/i),section=availableFirst||availableAfter;return section?paypalSignedMoney(section[1]):null}
 function paypalFundingSources(text,total){const bank=text.match(/(?:deutsche\s+bank(?:\s+ag)?|bankkonto)[\s\S]{0,80}?(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*€/i),paypal=text.match(/paypal-?guthaben[\s\S]{0,50}?(\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*€/i);if(!bank)return [];const bankAmount=paypalSignedMoney(bank[1]),paypalAmount=paypal?paypalSignedMoney(paypal[1]):0;if(Math.round((bankAmount+paypalAmount)*100)!==Math.round(Number(total)*100))return [];return [{accountHint:'bank',amount:bankAmount,label:'Bankkonto'},...(paypalAmount>.004?[{accountHint:'paypal',amount:paypalAmount,label:'PayPal-Guthaben'}]:[])]}
 function paypalOrderSummary(lines){const start=lines.findIndex(line=>/bestell(?:ung)?(?:s)?(?:ü|u)bersicht/i.test(line));if(start<0)return '';for(let index=start+1;index<Math.min(lines.length,start+6);index++){const value=lines[index].replace(/\s+/g,' ').trim();if(value&&!/^[-+−–—]?[\s€$]*\d+[.,]\d{2}\s*€?$/i.test(value)&&!/^(?:betrag|gesamtbetrag|details|bezahlt mit)$/i.test(value))return value}return ''}
 function paypalPersonalNote(lines,index){for(let offset=index+1;offset<Math.min(lines.length,index+7);offset++){const value=String(lines[offset]||'').trim(),quoted=value.match(/[„“”"]\s*([^„“”"]{2,80}?)\s*[„“”"]/);if(quoted)return quoted[1].trim()}return ''}

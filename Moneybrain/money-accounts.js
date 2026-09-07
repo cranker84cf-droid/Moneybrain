@@ -17,7 +17,7 @@
  function active(){return all().filter(account=>account.active)}
  function history(accountId){return reconciliations.filter(item=>item.accountId===accountId).map(item=>({...item})).sort((a,b)=>new Date(b.reconciledAt)-new Date(a.reconciledAt))}
  function accountForTransaction(transaction){return transaction.accountId?accounts.find(account=>account.id===transaction.accountId)||null:null}
- function markRecorded(transaction,recordedAt=nowIso()){const bookingTime=new Date(transaction?.date).getTime(),recordedTime=new Date(recordedAt).getTime();if(Number.isFinite(bookingTime)&&Number.isFinite(recordedTime)&&bookingTime<=recordedTime)transaction.balanceEffectiveAt=new Date(recordedTime).toISOString();return transaction}
+ function markRecorded(transaction,recordedAt=nowIso()){const booking=new Date(transaction?.date),recorded=new Date(recordedAt),day=value=>new Date(value.getFullYear(),value.getMonth(),value.getDate()).getTime(),bookingDay=Number.isFinite(booking.getTime())?day(booking):NaN,recordedDay=Number.isFinite(recorded.getTime())?day(recorded):NaN;if(Number.isFinite(bookingDay)&&Number.isFinite(recordedDay)&&bookingDay<=recordedDay)transaction.balanceEffectiveAt=recorded.toISOString();return transaction}
  function balanceAt(account,transactions=[],at=nowIso()){
   const cutoff=new Date(at).getTime(),prior=history(account.id).filter(item=>new Date(item.reconciledAt).getTime()<=cutoff).sort((a,b)=>new Date(b.reconciledAt)-new Date(a.reconciledAt))[0],baseTime=prior?new Date(prior.reconciledAt).getTime():-Infinity;
   let result=prior?number(prior.actualBalance):0;

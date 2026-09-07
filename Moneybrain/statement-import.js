@@ -95,7 +95,7 @@ function normalizeParty(value,kind,details=''){
  return value.replace(/\s*(?:SAGT DANKE|\d{2}-\d{2}-\d{4}|T?\d{1,2}:\d{2}:\d{2}).*$/i,'').trim().slice(0,90)||kind;
 }
 function parseBookedTransactionsExport(lines,pages,full=''){
- const header=/^(\d{2})\.(\d{2})\.(20\d{2})\s+(\d{2})\.(\d{2})\.(20\d{2})\s+(.+?)\s+(-?[\d.]+,\d{2})\s+EUR$/i;
+ const header=/^(?:[a-f0-9]{8}\s+)?(\d{2})\.(\d{2})\.(20\d{2})\s+(\d{2})\.(\d{2})\.(20\d{2})\s+(.+?)\s+(-?[\d.]+,\d{2})\s+EUR$/i;
  const blocks=[];let current=null;
  for(const line of lines){const match=String(line).match(header);if(match){if(current)blocks.push(current);current={match,details:[]}}else if(current)current.details.push(String(line))}
  if(current)blocks.push(current);
@@ -114,7 +114,7 @@ function parseBookedTransactionsExport(lines,pages,full=''){
 }
 function bookedExportParty(details,bookingKind){
  const clean=details.map(value=>String(value).replace(/\s+/g,' ').trim()).filter(Boolean),joined=clean.join(' ');
- const beneficiaryLabel=/^Beg(?:u|\u00fc)nstigter\s*\/\s*Auftraggeber\s*:?[\s]*/i;
+ const beneficiaryLabel=/^(?:\d{8}\s+)?Beg(?:u|\u00fc)nstigter\s*\/\s*Auftraggeber\s*:?[\s]*/i;
  const purposeStart=clean.findIndex(line=>/^Verwendungszweck/i.test(line)),beneficiaryIndex=clean.findIndex(line=>beneficiaryLabel.test(line));
  const purpose=(purposeStart>=0?clean.slice(purposeStart,beneficiaryIndex>purposeStart?beneficiaryIndex:purposeStart+3).join(' '):'').replace(/^Verwendungszweck\s*/i,'');
  const beneficiary=beneficiaryIndex>=0?clean[beneficiaryIndex].replace(beneficiaryLabel,''):'';

@@ -17,6 +17,7 @@
  function active(){return all().filter(account=>account.active)}
  function history(accountId){return reconciliations.filter(item=>item.accountId===accountId).map(item=>({...item})).sort((a,b)=>new Date(b.reconciledAt)-new Date(a.reconciledAt))}
  function accountForTransaction(transaction){return transaction.accountId?accounts.find(account=>account.id===transaction.accountId)||null:null}
+ function markRecorded(transaction,recordedAt=nowIso()){const bookingTime=new Date(transaction?.date).getTime(),recordedTime=new Date(recordedAt).getTime();if(Number.isFinite(bookingTime)&&Number.isFinite(recordedTime)&&bookingTime<=recordedTime)transaction.balanceEffectiveAt=new Date(recordedTime).toISOString();return transaction}
  function balanceAt(account,transactions=[],at=nowIso()){
   const cutoff=new Date(at).getTime(),prior=history(account.id).filter(item=>new Date(item.reconciledAt).getTime()<=cutoff).sort((a,b)=>new Date(b.reconciledAt)-new Date(a.reconciledAt))[0],baseTime=prior?new Date(prior.reconciledAt).getTime():-Infinity;
   let result=prior?number(prior.actualBalance):0;
@@ -42,5 +43,5 @@
  function fromAccountRow(row){return normalizeAccount({id:row.id,systemKey:row.system_key,name:row.name,type:row.account_type,active:row.is_active,includeInBudget:row.include_in_budget,sortOrder:row.sort_order,createdAt:row.created_at,updatedAt:row.updated_at})}
  function toReconciliationRow(item){return {id:item.id,account_id:item.accountId,calculated_balance:item.calculatedBalance,actual_balance:item.actualBalance,difference:item.difference,reconciled_at:item.reconciledAt,note:item.note,created_at:item.createdAt}}
  function fromReconciliationRow(row){return normalizeReconciliation({id:row.id,accountId:row.account_id,calculatedBalance:row.calculated_balance,actualBalance:row.actual_balance,difference:row.difference,reconciledAt:row.reconciled_at,note:row.note,createdAt:row.created_at})}
- window.MoneybrainAccounts={all,active,history,balance,balanceAt,totals,unassigned,assignSourceTransactions,assignStatementTransactions,accountForTransaction,create,update,remove,hasHistory,reconcile,applyCloudRows,applyCloudReconciliations,exportRows,toReconciliationRow,types:[['bank','Bankkonto'],['paypal','PayPal'],['cash','Bargeld'],['savings','Sparen'],['investment','Anlage'],['other','Sonstiges']]};
+ window.MoneybrainAccounts={all,active,history,balance,balanceAt,totals,unassigned,assignSourceTransactions,assignStatementTransactions,accountForTransaction,markRecorded,create,update,remove,hasHistory,reconcile,applyCloudRows,applyCloudReconciliations,exportRows,toReconciliationRow,types:[['bank','Bankkonto'],['paypal','PayPal'],['cash','Bargeld'],['savings','Sparen'],['investment','Anlage'],['other','Sonstiges']]};
 })();

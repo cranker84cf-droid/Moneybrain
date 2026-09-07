@@ -11,6 +11,7 @@
  function normalizeReconciliation(item){return {id:String(item.id||crypto.randomUUID()),accountId:String(item.accountId),calculatedBalance:number(item.calculatedBalance),actualBalance:number(item.actualBalance),difference:number(item.difference),reconciledAt:item.reconciledAt||nowIso(),note:String(item.note||''),createdAt:item.createdAt||nowIso()}}
  function loadArray(key,normalizer,fallback=[]){try{const stored=JSON.parse(localStorage.getItem(key)||'null');if(Array.isArray(stored))return stored.map(normalizer)}catch{}return fallback}
  let accounts=loadArray(accountsKey,normalizeAccount,defaults()),reconciliations=loadArray(reconciliationsKey,normalizeReconciliation,[]);
+ if(!localStorage.getItem(accountsKey))localStorage.setItem(accountsKey,JSON.stringify(accounts));
  function persistAccounts(queue=true){accounts=accounts.map(normalizeAccount).sort((a,b)=>a.sortOrder-b.sortOrder||a.name.localeCompare(b.name));localStorage.setItem(accountsKey,JSON.stringify(accounts));if(queue)window.MoneybrainCloud?.queueAccounts(accounts);window.render?.()}
  function persistReconciliations(queueItem=null){reconciliations=reconciliations.map(normalizeReconciliation).sort((a,b)=>new Date(a.reconciledAt)-new Date(b.reconciledAt));localStorage.setItem(reconciliationsKey,JSON.stringify(reconciliations));if(queueItem)window.MoneybrainCloud?.queueReconciliation(queueItem);window.render?.()}
  function all(){return accounts.map(account=>({...account}))}

@@ -16,7 +16,7 @@
  function persistReconciliations(queueItem=null){reconciliations=reconciliations.map(normalizeReconciliation).sort((a,b)=>new Date(a.reconciledAt)-new Date(b.reconciledAt));localStorage.setItem(reconciliationsKey,JSON.stringify(reconciliations));if(queueItem)window.MoneybrainCloud?.queueReconciliation(queueItem);window.render?.()}
  function all(){return accounts.map(account=>({...account}))}
  function active(){return all().filter(account=>account.active)}
- function history(accountId){return reconciliations.filter(item=>item.accountId===accountId).map(item=>({...item})).sort((a,b)=>new Date(b.reconciledAt)-new Date(a.reconciledAt))}
+ function history(accountId){return reconciliations.filter(item=>item.accountId===accountId).map(item=>({...item})).sort((a,b)=>new Date(b.reconciledAt)-new Date(a.reconciledAt)||new Date(b.createdAt)-new Date(a.createdAt))}
  function accountForTransaction(transaction){return transaction.accountId?accounts.find(account=>account.id===transaction.accountId)||null:null}
  function markRecorded(transaction,recordedAt=nowIso()){const booking=new Date(transaction?.date),recorded=new Date(recordedAt),day=value=>new Date(value.getFullYear(),value.getMonth(),value.getDate()).getTime(),bookingDay=Number.isFinite(booking.getTime())?day(booking):NaN,recordedDay=Number.isFinite(recorded.getTime())?day(recorded):NaN;if(Number.isFinite(bookingDay)&&Number.isFinite(recordedDay)&&bookingDay<=recordedDay)transaction.balanceEffectiveAt=recorded.toISOString();return transaction}
  function balanceAt(account,transactions=[],at=nowIso()){

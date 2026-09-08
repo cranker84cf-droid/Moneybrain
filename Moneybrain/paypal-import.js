@@ -6,17 +6,20 @@ window.parsePayPalActivity=async function(file,onProgress=()=>{}){
   if(!/Transaktions(?:ü|u|ue)bersicht\s*-\s*EUR/i.test(paypalFold(text)))throw new Error('Diese PDF ist kein PayPal-Aktivitätsbericht.');
   return parsePayPalPdfText(text,file.name);
  }
- if(!file?.type?.startsWith('image/'))throw new Error('PayPal-Nachweise bitte als PDF oder Screenshot importieren.');
+ if(!paypalImageFile(file))throw new Error('PayPal-Nachweise bitte als PDF oder Screenshot importieren.');
  if(!window.Tesseract)throw new Error('Die Bilderkennung ist nicht geladen.');
  onProgress('PayPal-Nachweis wird vorbereitet ...');
  const worker=await Tesseract.createWorker('deu',1,{workerPath:new URL('./vendor/tesseract-worker.min.js',location.href).href,corePath:new URL('./vendor/tesseract-core/tesseract-core-lstm.wasm.js',location.href).href,langPath:new URL('./vendor/tessdata',location.href).href,gzip:true,logger:m=>{if(m.status==='recognizing text')onProgress('PayPal wird gelesen: '+Math.round((m.progress||0)*100)+' %')}});
  try{
   await worker.setParameters({tessedit_pageseg_mode:'11',preserve_interword_spaces:'1'});
   text=(await worker.recognize(file)).data.text||'';
-  if(paypalDetectedBalance(paypalFold(text))===null){onProgress('PayPal-Guthaben wird nochmals geprüft ...');await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1'});text+='\n'+((await worker.recognize(file)).data.text||'')}
+  let firstPass=null;try{firstPass=parsePayPalActivityText(text,file.name)}catch{}
+  if(!firstPass?.length){onProgress(firstPass?.detectedBalance!==null&&firstPass?.detectedBalance!==undefined?'PayPal-Aktivitäten werden nochmals geprüft ...':'PayPal-Guthaben wird nochmals geprüft ...');await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1'});text+='\n'+((await worker.recognize(file)).data.text||'')}
  }finally{await worker.terminate()}
  return parsePayPalActivityText(text,file.name);
 };
+
+function paypalImageFile(file){return String(file?.type||'').startsWith('image/')||/\.(?:png|jpe?g|webp|heic|heif)$/i.test(String(file?.name||''))}
 
 window.parsePayPalActivityText=parsePayPalActivityText;
 window.parsePayPalPdfText=parsePayPalPdfText;

@@ -280,8 +280,8 @@ function importStatementTransactions(items){
 }
 
 function isBankScreenshotFile(file){return /deutsche.?bank|konto.?screenshot|konto.?umsatz/i.test(String(file?.name||''))}
-function isPayPalEvidenceFile(file){return /paypal/i.test(String(file?.name||''))&&(String(file?.type||'').startsWith('image/')||/\.pdf$/i.test(file.name))}
-function isImageFile(file){return String(file?.type||'').startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(String(file?.name||''))}
+function isPayPalEvidenceFile(file){return /paypal/i.test(String(file?.name||''))&&(isImageFile(file)||/\.pdf$/i.test(String(file?.name||'')))}
+function isImageFile(file){return String(file?.type||'').startsWith('image/')||/\.(png|jpe?g|webp|heic|heif)$/i.test(String(file?.name||''))}
 function isBankScreenshotBatch(files){return files.length>0&&files.every(file=>file.type.startsWith('image/')||/\.(png|jpe?g|webp)$/i.test(file.name))&&files.some(isBankScreenshotFile)}
 function showBankScreenshotDisabled(){
  open('<div class="sheet-title"><h2>Bank-Screenshots deaktiviert</h2><button class="close">&times;</button></div><div class="review-box"><strong>Bitte Kontoauszug oder Kontoumsaetze als PDF verwenden</strong><p>Bank-Screenshots werden wegen unzuverlaessiger Betrags- und Haendlererkennung nicht mehr verarbeitet. Kassenbons und Rechnungen als Bild oder PDF funktionieren weiterhin.</p></div>');
@@ -291,6 +291,7 @@ async function showDocumentImport(file){
  if(/kontoauszug|kontoumsa(?:e|\u00e4)tze/i.test(file.name))return showStatementOnly(file);
  if(isBankScreenshotFile(file))return showBankScreenshotDisabled();
  if(isPayPalEvidenceFile(file))return showPayPalImport(file);
+ if(isImageFile(file))return showSmartImageBatchImport([file]);
  return showReceiptImport(file);
 }
 async function showPayPalImport(file){
